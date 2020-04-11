@@ -41,9 +41,16 @@ Testbench Gotchas
     $display("FAILED for input 11");
   end
   ```
+
 Running Testbenches
 ===================
+`apio sim` will run the first test bench it finds (alphabetic sort, ends in
+\_tb.v).
 
-With the above in place `apio sim` should run the simulation and then start
-`gtkwave` with the simulation results loaded.
+In my branch of apio (https://github.com/freespace/apio) you can use
+```
+apio sim -t <testbench.v>
+```
 
+which will run the specified testbench file. This allows us to have 1 testbench
+per module per project.
