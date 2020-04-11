@@ -1,6 +1,6 @@
 `default_nettype none
 
-module Demux (
+module DMux (
   output wire out_a,
   output wire out_b,
   input wire in,

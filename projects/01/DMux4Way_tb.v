@@ -1,7 +1,7 @@
 `default_nettype none
 `define DUMPSTR(x) `"x.vcd`"
 
-module Demux_tb;
+module DMux_tb;
   wire a;
   wire b;
   reg sel;
