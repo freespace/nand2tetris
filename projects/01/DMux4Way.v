@@ -1,6 +1,6 @@
 `default_nettype none
 
-module Demux4Way (
+module DMux4Way (
   output wire out_a,
   output wire out_b,
   output wire out_c,
@@ -12,10 +12,10 @@ module Demux4Way (
   wire ab_in;
   wire cd_in;
 
-  DMux dmux_abcd(ab_in, cd_in, in, sel[0]);
+  DMux dmux_abcd(ab_in, cd_in, in, sel[1]);
 
-  DMux dmux_ab(out_a, out_b, ab_in, sel[1]);
-  DMux dmux_cd(out_c, out_d, cd_in, sel[1]);
+  DMux dmux_ab(out_a, out_b, ab_in, sel[0]);
+  DMux dmux_cd(out_c, out_d, cd_in, sel[0]);
 
 endmodule
 
