@@ -5,7 +5,7 @@ module Or_tb;
   reg a;
   reg b;
   wire y;
-  Or UUT (.a(a), .b(b), .y(y));
+  Or UUT (.a(a), .b(b), .out(y));
   initial begin
     $dumpfile(`DUMPSTR(`VCD_OUTPUT));
     $dumpvars(0, Or_tb);

@@ -1,11 +1,11 @@
 `default_nettype none
 
 module Not (
-  output wire y,
+  output wire out,
   input wire a
 );
 
-  not(y, a);
+  not(out, a);
 
 endmodule
 

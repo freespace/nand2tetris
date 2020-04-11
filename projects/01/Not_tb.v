@@ -4,7 +4,7 @@
 module Not_tb;
   reg a;
   wire y;
-  Not UUT (.a(a), .y(y));
+  Not UUT (.a(a), .out(y));
   initial begin
     $dumpfile(`DUMPSTR(`VCD_OUTPUT));
     $dumpvars(0, Not_tb);

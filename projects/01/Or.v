@@ -1,7 +1,7 @@
 `default_nettype none
 
 module Or (
-  output wire y,
+  output wire out,
   input wire a,
   input wire b
 );
@@ -10,7 +10,7 @@ module Or (
 
   nand(not_a, a, a);
   nand(not_b, b, b);
-  nand(y, not_a, not_b);
+  nand(out, not_a, not_b);
 
 endmodule
 

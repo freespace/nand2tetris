@@ -5,7 +5,7 @@ module Xor_tb;
   reg a;
   reg b;
   wire y;
-  Xor UUT (.a(a), .b(b), .y(y));
+  Xor UUT (.a(a), .b(b), .out(y));
   initial begin
     $dumpfile(`DUMPSTR(`VCD_OUTPUT));
     $dumpvars(0, Xor_tb);

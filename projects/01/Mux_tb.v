@@ -7,7 +7,7 @@ module Mux_tb;
   reg sel;
   reg y_expected;
   wire y;
-  Mux UUT (.y(y), .a(a), .b(b), .sel(sel));
+  Mux UUT (.out(y), .a(a), .b(b), .sel(sel));
 
   reg [3:0] testdata[0:7];
   integer idx;

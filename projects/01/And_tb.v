@@ -5,7 +5,7 @@ module And_tb;
   reg a;
   reg b;
   wire y;
-  And UUT (.a(a), .b(b), .y(y));
+  And UUT (.a(a), .b(b), .out(y));
   initial begin
     $dumpfile(`DUMPSTR(`VCD_OUTPUT));
     $dumpvars(0, And_tb);

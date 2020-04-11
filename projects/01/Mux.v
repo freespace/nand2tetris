@@ -1,7 +1,7 @@
 `default_nettype none
 
 module Mux (
-  output wire y,
+  output wire out,
   input wire a,
   input wire b,
   input wire sel
@@ -12,7 +12,7 @@ module Mux (
   Not not1(not_sel, sel);
   and and1(a_out, not_sel, a);
   and and2(b_out, sel, b);
-  or o1(y, a_out, b_out);
+  or o1(out, a_out, b_out);
 
 endmodule
 
