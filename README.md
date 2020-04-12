@@ -52,5 +52,5 @@ In my branch of apio (https://github.com/freespace/apio) you can use
 apio sim -t <testbench.v>
 ```
 
-which will run the specified testbench file. This allows us to have 1 testbench
-per module per project.
+which will run the specified testbench file. This allows us to have more than 1
+testbench per module per project.
