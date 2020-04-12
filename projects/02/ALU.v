@@ -1,4 +1,4 @@
-`default_nettype
+`default_nettype none
 
 module ALU(
   output wire[15:0] out,

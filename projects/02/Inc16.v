@@ -1,4 +1,4 @@
-`default_nettype
+`default_nettype none
 
 module Inc16(
   output wire[15:0] out,
