@@ -3,11 +3,11 @@
 `define S_CLK         P1A7
 `define S_DATA        P1A8
 `define S_RESET       P1A9
-`define ALU_FREQ_HZ   100
+`define ALU_FREQ_HZ   10
 
-// must be at least 56x faster
+// must be at least 200x faster
 // than ALU_FREQ_HZ
-`define SHIFT_FREQ_HZ 10000
+`define SHIFT_FREQ_HZ 3000
 
 // alu_state is x, y, out, zx, nx, zy, ny, f, no, ng, zr
 // = 16 * 3 + 8 = 56 bits
@@ -103,9 +103,7 @@ module Top(
   end
 
   always @(posedge alu_clk) begin
-    if (out != 16'hFFFF) begin
-      x <= out;
-    end
+    x <= out;
   end
 
 endmodule
