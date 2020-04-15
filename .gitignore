@@ -1,5 +1,10 @@
 *.vcd
 *.out
+*.asc
+*.bin
+hardware.json
 tags
-.*
-
+.*.swp
+.*.dblite
+.travis.yml
+.pio
