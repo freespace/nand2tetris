@@ -1,14 +1,14 @@
 `default_nettype none
 
 module DFF(
-  output reg out,
+  output wire out,
   input wire clk,
   input wire in
 );
 
-  always @(posedge clk) begin
-    out = in;
-  end
+  SB_DFF dff(.Q(out),
+             .C(clk),
+             .D(in));
 
 endmodule
 
