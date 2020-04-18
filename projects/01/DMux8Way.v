@@ -9,8 +9,8 @@ module DMux8Way (
   output wire out_f,
   output wire out_g,
   output wire out_h,
-  input wire in,
-  input wire[2:0] sel
+  input wire[2:0] sel,
+  input wire in
 );
 
   wire abcd_in;

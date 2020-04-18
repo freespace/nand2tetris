@@ -2,6 +2,7 @@
 
 module Mux8Way16 (
   output wire[15:0] out,
+  input wire[2:0] sel,
   input wire[15:0] a,
   input wire[15:0] b,
   input wire[15:0] c,
@@ -9,8 +10,7 @@ module Mux8Way16 (
   input wire[15:0] e,
   input wire[15:0] f,
   input wire[15:0] g,
-  input wire[15:0] h,
-  input wire[2:0] sel
+  input wire[15:0] h
 );
 
   wire[15:0] mux_ab_out;
