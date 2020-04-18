@@ -2,11 +2,11 @@
 
 module Mux4Way16 (
   output wire[15:0] out,
+  input wire[1:0] sel,
   input wire[15:0] a,
   input wire[15:0] b,
   input wire[15:0] c,
-  input wire[15:0] d,
-  input wire[1:0] sel
+  input wire[15:0] d
 );
 
   wire[15:0] mux_ab_out;
