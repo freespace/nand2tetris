@@ -43,8 +43,9 @@ module PC(
                        16'h0000,      //load=1 reset=1 inc=0 (invalid)
                        16'h0000);     //load=1 reset=1 inc=1 (invalid)
 
+  // PC acts on the negative edge based on course textbook
   Register pc_reg(out,
-                  clk,
+                  ~clk,
                   1'b1,
                   reg_in);
 

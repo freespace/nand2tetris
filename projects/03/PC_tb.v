@@ -9,7 +9,7 @@ module PC_tb;
   reg load = 0;
   reg reset = 0;
   reg inc = 0;
-  reg clk = 0;
+  reg clk = 1;
 
   // do NOT assign a value to out otherwise it will
   // be double driven
