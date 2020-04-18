@@ -7,8 +7,6 @@ module RAM16K(
   input wire[13:0] addr,
   input wire[15:0] in);
 
-  reg on = 1;
-  reg[3:0] writemask = 4'b1111;
 
   SB_SPRAM256KA ram(.DATAOUT(out),
 
@@ -18,11 +16,11 @@ module RAM16K(
                     .ADDRESS(addr),
                     .DATAIN(in),
 
-                    .MASKWREN(writemask),
-                    .CHIPSELECT(on),
-                    .STANDBY(~on),
-                    .SLEEP(~on),
-                    .POWEROFF(on));
+                    .MASKWREN(4'b1111),
+                    .CHIPSELECT(1'b1),
+                    .STANDBY(1'b0),
+                    .SLEEP(1'b0),
+                    .POWEROFF(1'b1));
 
 endmodule
 
