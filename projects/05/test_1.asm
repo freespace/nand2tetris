@@ -12,3 +12,9 @@
 
   // write into M
   M=D
+
+(END)
+  @2345
+  M=M+1
+  @END
+  0;JMP
