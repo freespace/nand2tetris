@@ -2,6 +2,7 @@
 `define DUMPSTR(x) `"x.vcd`"
 
 `define NTESTROWS 5
+`define PROG "test_2.hack"
 
 module HACK_tb;
   reg clk = 0;
@@ -28,14 +29,14 @@ module HACK_tb;
   initial begin
     $dumpfile(`DUMPSTR(`VCD_OUTPUT));
     $dumpvars(0, HACK_tb);
-    $readmemb("test_1.hack", ROM);
+    $readmemb(`PROG, ROM);
 
     // reset for 2 cycles
     reset = 1;
     #20
     reset = 0;
 
-    #500
+    #10000
 
     $finish;
   end
