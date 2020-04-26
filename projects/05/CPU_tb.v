@@ -5,9 +5,9 @@
 
 module CPU_tb;
   wire[15:0] outM;
-  wire[15:0] addressM;
+  wire[14:0] addressM;
   wire writeM;
-  wire[15:0] pc;
+  wire[14:0] pc;
 
   reg clk;
   reg[15:0] inM;

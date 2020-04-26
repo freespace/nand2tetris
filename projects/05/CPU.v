@@ -2,9 +2,9 @@
 
 module CPU(
   output wire[15:0] outM,
-  output wire[15:0] addressM,
+  output wire[14:0] addressM,
   output wire writeM,
-  output wire[15:0] pc,
+  output wire[14:0] pc,
   input wire clk,
   input wire[15:0] inM,
   input wire[15:0] inst,
@@ -33,8 +33,14 @@ module CPU(
   wire[15:0] a_out;
   wire a_load;
 
+  reg[14:0] addressM_buf;
   assign a_load = d1 | ~op;
-  assign addressM = a_out;
+  assign addressM = addressM_buf;
+
+  always @(negedge clk) begin
+    addressM_buf <= a_out[14:0];
+  end
+
   Register A(.out(a_out),
              .clk(clk),
              .load(a_load),
@@ -83,13 +89,20 @@ module CPU(
   // ~ng is not enough b/c zr might be set
   assign j_gt = ~ng & ~zr & j3;
   // loading, aka jumping, is only valid for C instructions
-  assign pc_load = (op & (j_lt | j_eq | j_gt)) | reset;
+  assign pc_load = (op & (j_lt | j_eq | j_gt)) & ~reset;
 
   // if any of the jump signals are set then we load the value in the A register
   // into the PC register
-  PC prog_counter(.out(pc),
+  wire[15:0] pc_out;
+  wire pc_inc;
+  assign pc = pc_out[14:0];
+  // if we are not loading or resetting we are incrementing. We need
+  // this b/c I implemented PC such that setting inc while reset or
+  // load is also set is undefined behaviour
+  assign pc_inc = ~reset & ~pc_load;
+  PC prog_counter(.out(pc_out),
                   .clk(clk),
-                  .inc(1'b1),
+                  .inc(pc_inc),
                   .load(pc_load),
                   .reset(reset),
                   .in(a_out));
