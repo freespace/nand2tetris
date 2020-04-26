@@ -77,6 +77,23 @@ Testbench Gotchas
   // value of a is now 0
   ```
 
+Importing Sources from Other Projects
+=====================================
+
+On \*nix use the following script to pull in all verilog files created in
+previous projects
+
+```
+find  .. -type f -name '*.v' ! -name '*_tb.v' -maxdepth 2 -exec ln -s {} . \;
+```
+
+This confuses git b/c git doesn't know about symlinks and thinks there are new
+files for it to track. Fix it with:
+
+```
+find . -type l | sed -e s'/^\.\///g' >> .gitignore
+```
+
 iCE40 UltraPlus
 ===============
 
