@@ -7,20 +7,14 @@ module RAM16K(
   input wire[13:0] addr,
   input wire[15:0] in);
 
+  reg[15:0] ram[0:16383];
 
-  SB_SPRAM256KA ram(.DATAOUT(out),
+  always @(posedge clk) begin
+    if (load) begin
+      ram[addr] <= in;
+    end
+  end
 
-                    .CLOCK(clk),
-                    .WREN(load),
-
-                    .ADDRESS(addr),
-                    .DATAIN(in),
-
-                    .MASKWREN(4'b1111),
-                    .CHIPSELECT(1'b1),
-                    .STANDBY(1'b0),
-                    .SLEEP(1'b0),
-                    .POWEROFF(1'b1));
-
+  assign out = ram[addr];
 endmodule
 
