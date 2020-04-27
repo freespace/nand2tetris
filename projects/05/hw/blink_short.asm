@@ -17,6 +17,9 @@
   @R0
   M=M+1
 
+  // nop
+  0
+
   // if M is less than 255 the repeat
   D=M
   @8
@@ -44,6 +47,9 @@
   // increment R0
   @R0
   M=M+1
+
+  // nop
+  0
 
   // if M is less than 255 the repeat
   D=M

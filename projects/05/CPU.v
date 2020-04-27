@@ -70,7 +70,7 @@ module CPU(
   wire[15:0] alu_x;
   wire d_load = d2 & op;
   Register D(.out(alu_x),
-             .clk(clk ^ (clk2x & ia)),
+             .clk(clk),
              .load(d_load),
              .in(alu_out));
 
