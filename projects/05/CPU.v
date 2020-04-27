@@ -16,7 +16,7 @@ module CPU(
   input wire[15:0] inst,
   input wire reset);
 
-  reg[1:0] clk_cnt = 0;
+  reg[1:0] clk_cnt = 1;
   wire clk;
 
   always @(posedge clk2x) begin
@@ -61,7 +61,7 @@ module CPU(
   end
 
   Register A(.out(a_out),
-             .clk(clk2x),
+             .clk(clk),
              .load(a_load),
              .in(a_in));
 
@@ -70,7 +70,7 @@ module CPU(
   wire[15:0] alu_x;
   wire d_load = d2 & op;
   Register D(.out(alu_x),
-             .clk(clk2x),
+             .clk(clk ^ (clk2x & ia)),
              .load(d_load),
              .in(alu_out));
 

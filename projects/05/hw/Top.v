@@ -5,7 +5,6 @@
 `define S_RESET       P1A9
 
 `define ROM_SIZE 1024*4
-`define PROG "blink.hack"
 
 /**
   CLK_FREQ_HZ must be 2x faster than VIDEO_FREQ_HZ.
@@ -29,6 +28,8 @@ module Top(
   parameter CPU_FREQ_HZ=100;
   // video should be at least 256x faster than CPU
   parameter VIDEO_FREQ_HZ=40000;
+
+  parameter PROG="blink.hack";
 
   reg[24:0] hack_clkdiv = 0;
   reg hack_clk = 0;
@@ -63,7 +64,7 @@ module Top(
   reg[15:0] ROM[0:`ROM_SIZE-1];
   // load the program to be executed
   initial begin
-    $readmemb(`PROG, ROM);
+    $readmemb(PROG, ROM);
   end
   // hopefully set it up as synchronous memory
   always @(negedge hack_clk) begin
