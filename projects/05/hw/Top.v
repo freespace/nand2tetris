@@ -3,14 +3,15 @@
 `define S_CLK         P1A7
 `define S_DATA        P1A8
 `define S_RESET       P1A9
-`define CPU_FREQ_HZ   100
-
-// must be at least 400x faster
-// than ALU_FREQ_HZ
-`define SHIFT_FREQ_HZ 40000
 
 `define ROM_SIZE 1024*4
 `define PROG "blink.hack"
+
+/**
+  CLK_FREQ_HZ must be 2x faster than VIDEO_FREQ_HZ.
+  VIDEO_FREQ_HZ must be at least 400x faster than
+  CPU_FREQ_HZ.
+*/
 
 module Top(
   input wire CLK,
@@ -24,33 +25,38 @@ module Top(
   output wire LEDR_N,
   output wire LEDG_N);
 
-  reg[24:0] cpu_clkdiv = 0;
-  reg cpu_clk = 0;
+  parameter CLK_FREQ_HZ=12000000;
+  parameter CPU_FREQ_HZ=100;
+  // video should be at least 256x faster than CPU
+  parameter VIDEO_FREQ_HZ=40000;
 
-  reg[24:0] s_clkdiv = 0;
-  reg s_clk = 0;
+  reg[24:0] hack_clkdiv = 0;
+  reg hack_clk = 0;
+
+  reg[24:0] vid_clkdiv = 0;
+  reg vid_clk = 0;
 
 
   // generate ALU and shift clocks based on CLK input
   always @(posedge CLK) begin
     // best HACK's CPU runs at half the CPU_FREQ we scale
     // things accordingly here
-    if (cpu_clkdiv == 12000000/(4*`CPU_FREQ_HZ)) begin
-      cpu_clkdiv <= 0;
-      cpu_clk <= ~cpu_clk;
+    if (hack_clkdiv == CLK_FREQ_HZ/(4*CPU_FREQ_HZ)) begin
+      hack_clkdiv <= 0;
+      hack_clk <= ~hack_clk;
     end else begin
-      cpu_clkdiv <= cpu_clkdiv + 1;
+      hack_clkdiv <= hack_clkdiv + 1;
     end
 
-    if (s_clkdiv == 12000000/(2*`SHIFT_FREQ_HZ)) begin
-      s_clkdiv <= 0;
-      s_clk <= ~s_clk;
+    if (vid_clkdiv == CLK_FREQ_HZ/(2*VIDEO_FREQ_HZ)) begin
+      vid_clkdiv <= 0;
+      vid_clk <= ~vid_clk;
     end else begin
-      s_clkdiv <= s_clkdiv + 1;
+      vid_clkdiv <= vid_clkdiv + 1;
     end
   end
 
-  reg[3:0] reset = 4'b1111;
+  reg[7:0] reset = 8'hFF;
   wire[14:0] pc;
   reg[15:0] inst;
 
@@ -60,16 +66,16 @@ module Top(
     $readmemb(`PROG, ROM);
   end
   // hopefully set it up as synchronous memory
-  always @(negedge cpu_clk) begin
+  always @(negedge hack_clk) begin
     inst = ROM[pc];
   end
 
-  assign `S_CLK = s_clk;
-  assign LED1 = cpu_clk;
+  assign `S_CLK = vid_clk;
+  assign LED1 = hack_clk;
   assign LEDR_N = pc[0];
   assign LEDG_N = pc[1];
 
-  always @(posedge cpu_clk) begin
+  always @(posedge hack_clk) begin
     // generate a reset signal for 4 clocks. Once all the 1s
     // have been shifted out reset will be 0 and the PC will be
     // allowed to increment
@@ -79,8 +85,8 @@ module Top(
   HACK hack(.pc(pc),
             .video_out(`S_DATA),
             .video_sync(`S_RESET),
-            .clk(cpu_clk),
-            .video_clk(s_clk),
+            .clk(hack_clk),
+            .video_clk(vid_clk),
             .reset(reset[0]),
             .inst(inst));
 endmodule
