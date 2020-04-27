@@ -10,7 +10,7 @@ module Top_tb;
   wire ledr_n;
   wire ledg_n;
 
-  Top #(800, 1, 400) UUT (clk,
+  Top #(800, 1, 400, "blink_short.hack") UUT (clk,
            s_clk,
            s_data,
            s_reset,
@@ -24,7 +24,7 @@ module Top_tb;
     $dumpfile(`DUMPSTR(`VCD_OUTPUT));
     $dumpvars(0, Top_tb);
 
-    #100000
+    #1000000
 
     $finish;
   end
