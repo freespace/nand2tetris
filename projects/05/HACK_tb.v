@@ -8,7 +8,7 @@ module HACK_tb;
   reg clk = 0;
   reg reset;
   wire[14:0] pc;
-  wire[15:0] inst;
+  reg[15:0] inst;
   wire[15:0] ram_data;
   wire[14:0] ram_addr;
 
@@ -21,9 +21,13 @@ module HACK_tb;
             .reset(reset),
             .inst(inst));
 
-  assign inst = ROM[pc];
-
   always #5 clk = ~clk;
+
+  // this simulates synchronous ROM which is more easily
+  // synthesised then async ROM
+  always @(negedge clk) begin
+    inst = ROM[pc];
+  end
 
   integer idx;
   initial begin
