@@ -1,6 +1,35 @@
+Significant Implementation Differences
+======================================
+Hardware RAM
+------------
+We do not use the RAM modules built in the project, opting to use single port
+RAM built into the iCE40 FPGA. This is far more efficient use of resources.
+
+Software Pipelining
+-------------------
+Due to the characteristics of the CPU a value loaded using an A-instruction
+doesn't appear in register A (aka `addressM`) until the next clock edge. For
+arithematics this is fine - the ALU will see the value previous loaded and
+compute the right values. For memory access however the single port RAM IP core
+being used will not update its on the same clock edge in which `addressM` is
+updated. It will only do so on the next edge. In other words:
+
+1. edge-1: `addressM` takes on new value, RAM output is undefined because on
+   edge transition of the value at the address present immediately *prior* is
+   clocked into the RAM.
+2. edge-2: the RAM output is now valid and reflects the value at `addressM`
+
+As such every memory read needs to be preceeded by a nop (0). This is the
+pipeline equivalent of inserting a bubble into a pipelined CPU but we are doing
+it in software.
+
+Writes have a similar issue. When `outM`, `addressM` and `writeM` are
+asserted on the same clock edge *no write happens* b/c their value immediately
+prior to transition is what matters. So it takes another nop for the write to
+commit.
+
 Development Environment
 =======================
-
 apio
 ----
 
@@ -38,7 +67,6 @@ $dumpvars(0, <testbench_name>);
 ```
 
 Where `<testbench_name>` is something like `Nand_tb`.
-
 
 Running Testbenches
 -------------------
@@ -126,3 +154,16 @@ Technical Notes
 - Memory Usage Guide for iCE40 Devices (TN1250): https://www.latticesemi.com/-/media/LatticeSemi/Documents/ApplicationNotes/MO/MemoryUsageGuideforiCE40Devices.ashx?document_id=47775
 - SPRAM Usage Guide (TN1314): https://www.latticesemi.com/-/media/LatticeSemi/Documents/ApplicationNotes/IK/iCE40-SPRAM-Usage-Guide.ashx?document_id=51966
 
+Troubleshotting
+===============
+
+ERROR: IO 'video_sync' is unconstrained in PCF (override this error with --pcf-allow-unconstrained)
+---------------------------------------------------------------------------------------------------
+- You have an unused module which defines input/outputs. Remove the module
+    should remove the error
+
+ERROR: Unable to place cell 'ROM.5.0.0_RAM', no Bels remaining of type 'ICESTORM_RAM'
+-------------------------------------------------------------------------------------
+- The ROM size is too large. The icebreaker has 30 EBR units of 256x16 size.
+    This allows a maximum of 256*30 = 7680 instructions in the ROM. Use `apio build --verbose-pnr`
+    to get usage statistics.
