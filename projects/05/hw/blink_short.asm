@@ -2,6 +2,7 @@
   // ...
 (WRITE_1)
   @R0
+  0
   M=0
 
 (WRITE_1_LOOP)
@@ -9,20 +10,23 @@
   @SCREEN
   D=A
   @R0
+  0
   D=D+M
   A=D
+  0
   M=1
+  0
 
   // increment R0
   @R0
+  0
   M=M+1
-
-  // nop
   0
 
   // if M is less than 255 the repeat
+  0
   D=M
-  @8
+  @7
   D=D-A
   @WRITE_1_LOOP
   D;JLT
@@ -33,6 +37,7 @@
 
 (WRITE_0)
   @R0
+  0
   M=0
 
 (WRITE_0_LOOP)
@@ -40,20 +45,23 @@
   @SCREEN
   D=A
   @R0
+  0
   D=D+M
   A=D
+  0
   M=0
+  0
 
   // increment R0
   @R0
+  0
   M=M+1
-
-  // nop
   0
 
   // if M is less than 255 the repeat
+  0
   D=M
-  @8
+  @7
   D=D-A
   @WRITE_0_LOOP
   D;JLT

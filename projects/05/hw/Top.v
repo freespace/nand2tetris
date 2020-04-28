@@ -67,7 +67,7 @@ module Top(
     $readmemb(PROG, ROM);
   end
   // hopefully set it up as synchronous memory
-  always @(negedge hack_clk) begin
+  always @(posedge hack_clk) begin
     inst = ROM[pc];
   end
 

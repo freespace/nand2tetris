@@ -1,28 +1,14 @@
 `default_nettype none
 
-/**
-  The clk2x signal should be twice as fast as the intended speed of the CPU.
-  Memory connected to this CPU should be clocked using clk2x. This is a a hack
-  to work around the fact the HACK design expects async memory while we only
-  have HW IP cores for sync memory.
-*/
 module CPU(
   output wire[15:0] outM,
   output wire[14:0] addressM,
   output wire writeM,
   output wire[14:0] pc,
-  input wire clk2x,
+  input wire clk,
   input wire[15:0] inM,
   input wire[15:0] inst,
   input wire reset);
-
-  reg[1:0] clk_cnt = 1;
-  wire clk;
-
-  always @(posedge clk2x) begin
-    clk_cnt <= clk_cnt + 1;
-  end
-  assign clk = clk_cnt[0];
 
   wire op, ia, c1, c2, c3, c4, c5, c6, d1, d2, d3, j1, j2, j3;
 
@@ -34,12 +20,7 @@ module CPU(
   assign {j1, j2, j3} = inst[2:0];
 
   // writeM is asserted only if C-instruction and d3 is set.
-  // Additionally we need to make sure it is never set on
-  // when clk2x is positive to ensure valid inMem when
-  // clk is positive. Additionally we want to writeM to
-  // only be asserted AFTER an instruction has been executed
-  // which means when clk is positive.
-  assign writeM = d3 & op & ~clk2x & clk;
+  assign writeM = d3 & op;
 
   // decided what values ends up in the A register
   wire[15:0] a_in;

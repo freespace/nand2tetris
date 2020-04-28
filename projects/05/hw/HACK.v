@@ -27,7 +27,7 @@ module HACK(
           .addressM(addressM),
           .writeM(writeM),
           .pc(pc),
-          .clk2x(clk),
+          .clk(clk),
           .inM(inM),
           .inst(inst),
           .reset(reset));
