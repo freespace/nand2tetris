@@ -52,7 +52,7 @@ class Assembler:
   # start of variables address space
   VARIABLES_START_ADDRESS = 16
 
-  def __init__(self, input_asm, output_hack, compat, pretty_print, annotate):
+  def __init__(self, input_asm, output_hack=None, compat=False, pretty_print=False, annotate=False):
     self._input_asm = input_asm
     self._output_hack = output_hack
     self._compat = compat
@@ -61,6 +61,12 @@ class Assembler:
 
     self.known_symbols = dict(self.PREDEFINED_LABELS)
     self.hack_output = []
+
+  def dumps(self):
+    """
+    Returns the assembled output as a string
+    """
+    return '\n'.join(self.hack_output)
 
   def write_hack(self):
     if self._output_hack is None:
@@ -303,3 +309,14 @@ class NOP_Instruction(C_Instruction):
 
 if __name__ == '__main__':
   main()
+
+def test_blink():
+  with open('tests/blink.hack') as fh:
+    expected = fh.read().strip()
+
+  asm = Assembler('tests/blink.asm')
+  asm.assemble()
+  out = asm.dumps()
+
+  assert expected == out
+
