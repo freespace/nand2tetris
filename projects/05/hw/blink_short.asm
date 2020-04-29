@@ -4,13 +4,13 @@
   @R0
   0
   M=0
+  0
 
 (WRITE_1_LOOP)
   // write to SCREEN+R0
   @SCREEN
   D=A
   @R0
-  0
   D=D+M
   A=D
   0
@@ -24,7 +24,6 @@
   0
 
   // if M is less than 255 the repeat
-  0
   D=M
   @7
   D=D-A
@@ -39,13 +38,13 @@
   @R0
   0
   M=0
+  0
 
 (WRITE_0_LOOP)
   // write to SCREEN+R0
   @SCREEN
   D=A
   @R0
-  0
   D=D+M
   A=D
   0
@@ -59,7 +58,6 @@
   0
 
   // if M is less than 255 the repeat
-  0
   D=M
   @7
   D=D-A

@@ -17,8 +17,8 @@ module HACK(
   RAM ram(.out(inM),
           .video_out(video_out),
           .video_sync(video_sync),
-          .clk(clk),
-          .video_clk(video_clk),
+          .clk(~clk),
+          .video_clk(~video_clk),
           .load(writeM),
           .addr(addressM[14:0]),
           .in(outM));

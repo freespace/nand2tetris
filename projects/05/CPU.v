@@ -33,13 +33,8 @@ module CPU(
   wire[15:0] a_out;
   wire a_load;
 
-  reg[14:0] addressM_buf;
   assign a_load = d1 | ~op;
-  assign addressM = addressM_buf;
-
-  always @(negedge clk) begin
-    addressM_buf <= a_out[14:0];
-  end
+  assign addressM = a_out[14:0];
 
   Register A(.out(a_out),
              .clk(clk),
