@@ -242,9 +242,8 @@ class C_Instruction(Instruction):
     return []
 
   def num_pre_nops(self):
-    # memory reads need a nop before to allow RAM
-    # to update
-    if 'M' in self.comp or 'M' in self.dest:
+    # writes need an op to allow the RAM address to settle
+    if 'M' in self.dest:
       return 1
     else:
       return 0
