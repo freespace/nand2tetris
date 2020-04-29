@@ -28,6 +28,52 @@ asserted on the same clock edge *no write happens* b/c their value immediately
 prior to transition is what matters. So it takes another nop for the write to
 commit.
 
+### Update 2020-04-29
+I "optimised" memory access by shifting the RAM clock 1/2 period 
+(i.e. `ram_clk = ~clk`). This allows `addressM` to be present at the rise edge
+of the RAM clock. This means a sequence like
+
+```
+@R0
+D=M
+```
+
+No longer needs a nop. However there is no getting around the fact that each
+write takes an additional cycle. Additionally when M is on the RHS and the LHS,
+e.g. `M=M+1` a nop before and after is still required.
+
+Inserting these nops is time consuming and prone to error. `tools/assembler.py`
+will, by default, insert nops for you so programs supplied by the course can be
+used as-is without modification provided they are assembled using our assembler.
+Note that I wrote the assembler before I realised it was project 6.
+
+eXtended Register
+-----------------
+Project 5.1 extends the HACK platform to implement an additional `W` register.
+This extended platform is called HACKx and it extends the C-instruction from:
+
+```
+1 1  1 a c1 c2 c3 c4 c5 c6 d1 d2 d3 j1 j2 j3
+⬇️
+1 w d4 a c1 c2 c3 c4 c5 c6 d1 d2 d3 j1 j2 j3
+```
+
+Where
+
+  - `w` works like `a`. When it is SET the `D` register supplies the `x` input
+      to the ALU. When it is UNSET the `W` register supplies the `x` input to
+      the ALU.
+  - `d4` works like `d1..d3` but inverted. Wwhen it is UNSET the `W` register takes on the
+    ALU output on the next clock. 
+
+The interpretation of `w` and `d4` has been chosen so that programs intended for
+the HACK platform can run on the HACKx platform without modification. Yay
+backward compatibility!
+
+> I named the register W as a homage to the W register found in PIC
+> microcontrollers.
+
+
 Development Environment
 =======================
 apio
