@@ -62,6 +62,9 @@ class Assembler:
     self.known_symbols = dict(self.PREDEFINED_LABELS)
     self.hack_output = []
 
+    if self._annotate:
+      self.hack_output.append(f'// SOURCE FILE={input_asm}')
+
   def dumps(self):
     """
     Returns the assembled output as a string
@@ -288,9 +291,11 @@ class C_Instruction(Instruction):
 
   def resolve(self, known_symbols):
     a = int('M' in self.comp)
+    w = int('W' in self.comp)
     d1 = int('A' in self.dest)
     d2 = int('D' in self.dest)
     d3 = int('M' in self.dest)
+    d4 = int('W' in self.dest)
     j1 = int(self.jump in 'JLT JLE JNE')
     j2 = int(self.jump in 'JLE JGE JEQ')
     j3 = int(self.jump in 'JGT JGE JNE')
@@ -317,16 +322,37 @@ class C_Instruction(Instruction):
     }
 
     comp = self.comp
+
+    # remove all white space
+    comp = comp.replace(' ', '')
+
     if a:
       # replace M with A in comp for lookup purposes
       comp = comp.replace('M', 'A')
 
+    if w:
+      # replace W with D in comp for lookup purposes
+      comp = comp.replace('W', 'D')
+
     try:
       c1_c6 = comp_table[comp]
     except KeyError:
-      raise Exception(f'Unsupported computation {self.com}')
+      try:
+        # for some operation the ordering doesn't matter
+        # so we will accept D+A and A+D even though only
+        # D+A is defined in the comp t able
+        if len(comp) == 3 and comp[1] in '+|&':
+          comp = comp[::-1]
+          c1_c6 = comp_table[comp]
+        else:
+          raise
+      except KeyError:
+        raise Exception(f'Unsupported computation {comp}')
 
-    return f'111_{a}_{c1_c6}_{d1}{d2}{d3}_{j1}{j2}{j3}'
+    # invert w and d
+    w = 1 - w
+    d4 = 1 - d4
+    return f'1_{w}_{d4}_{a}_{c1_c6}_{d1}{d2}{d3}_{j1}{j2}{j3}'
 
 class NOP_Instruction(C_Instruction):
   def __init__(self):

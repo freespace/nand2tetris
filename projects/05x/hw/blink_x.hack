@@ -1,0 +1,96 @@
+
+// (INIT)
+// // ...
+// (WRITE_1)
+// D = 0
+1110101010010000 // PC=0
+
+// (WRITE_1_LOOP)
+// // write to SCREEN+W
+// @SCREEN
+0100000000000000 // PC=1
+
+// A=A+D
+1110000010100000 // PC=2
+
+// <GENERATED>
+// 0
+1110101010000000 // PC=3
+
+// M=1
+1110111111001000 // PC=4
+
+// <GENERATED>
+// 0
+1110101010000000 // PC=5
+
+// // increment W
+// D=D+1
+1110011111010000 // PC=6
+
+// // loop if D is smaller than A
+// @255
+0000000011111111 // PC=7
+
+// W=D-A
+1100010011000000 // PC=8
+
+// @WRITE_1_LOOP
+0000000000000001 // PC=9
+
+// W;JLT
+1010001100000100 // PC=10
+
+// // otherwise jump to WRITE_0 to start clearing the screen
+// @WRITE_0
+0000000000001101 // PC=11
+
+// 0;JEQ
+1110101010000010 // PC=12
+
+// (WRITE_0)
+// D=0
+1110101010010000 // PC=13
+
+// (WRITE_0_LOOP)
+// // write to SCREEN+W
+// @SCREEN
+0100000000000000 // PC=14
+
+// A=A+D
+1110000010100000 // PC=15
+
+// <GENERATED>
+// 0
+1110101010000000 // PC=16
+
+// M=0
+1110101010001000 // PC=17
+
+// <GENERATED>
+// 0
+1110101010000000 // PC=18
+
+// // increment W
+// D=D+1
+1110011111010000 // PC=19
+
+// // loop if D is smaller than A
+// @255
+0000000011111111 // PC=20
+
+// W=D-A
+1100010011000000 // PC=21
+
+// @WRITE_0_LOOP
+0000000000001110 // PC=22
+
+// W;JLT
+1010001100000100 // PC=23
+
+// // otherwise jump to WRITE_0 to start clearing the screen
+// @WRITE_1
+0000000000000000 // PC=24
+
+// 0;JEQ
+1110101010000010 // PC=25
