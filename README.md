@@ -72,6 +72,35 @@ backward compatibility!
 > I named the register W as a homage to the W register found in PIC
 > microcontrollers.
 
+Assembler
+---------
+Our implementation of the assembler (`tools/assembler.py`) accepts hex and binary constants in the
+form of:
+
+  - 0xNNNN for hexadecimal constants
+  - 0bNNNN for binary constants
+
+Take a page from verilog's book hexadecimal and binary constants can be
+spaced out using underscore(_) to improve readability.
+
+The assembler fully supports the HACKx platform. To ensure HACK compatible
+machine code is emitted specify `-C` on the commandline. This will cause
+the assembler to error when it encounters use of the `W` register.
+
+The assembler can optionally annotate the machine code output with
+the corresponding source block _and_ the `PC` value if the `-A` option is given. This is useful
+during debugging.
+
+VM Translator
+-------------
+Our implementation of the vm-to-asm translator (`tools/vm2asm.py`) is capable of
+generating assembly for the HACKx and HACK platform with the HACKx platform
+being the default target. To run tests VM programs from the course specify `-C`
+when invoking `vm2asm.py`. It is not necessary to also specify `-C` to the
+assembler b/c `vm2asm.py` will not use the `W` register.
+
+Like the assembler `vm2asm.py` will produce annotated assembly if `-A` is given.
+
 Chapters and Projects
 =====================
 
