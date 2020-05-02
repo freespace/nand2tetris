@@ -8,3 +8,12 @@ tags
 .*.dblite
 .travis.yml
 .pio
+.DS_Store
+*.cmp
+*.tst
+*.hack
+*.gtkw
+venv
+__pycache__
+build.log
+unused
