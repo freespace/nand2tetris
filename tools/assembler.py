@@ -201,6 +201,38 @@ class Instruction:
       ret.append(self.expression)
       return ret
 
+  @staticmethod
+  def parse_numeric_constant(token):
+    """
+    Attempts to parse token as:
+      - decimal (NNNNNN)
+      - hex (requires 0x prefix, e.g. 0xNNNNN)
+      - binary (requires 0b prefix, e.g. 0bNNNNN)
+
+    For all hex and binary literals underscores (_) may
+    be inserted for readability. e.g. 0xFF_FF_ and 0b1111_1010_0010
+    are acceptable.
+
+    Who even uses octal.
+
+    Returns an integer if parsing was successful, None otherwise.
+    """
+    try:
+      if token.isdigit():
+        return int(token)
+
+      token = token.replace('_', '')
+
+      if token[:2] == '0x':
+        return int(token, 16)
+
+      if token[:2] == '0b':
+        return int(token, 2)
+      return None
+    except ValueError:
+      raise SyntaxError(f'Failed to parse numeric constant {token}')
+
+
   def symbols(self):
     """
     Returns list of symbols used in this instruction
@@ -238,12 +270,11 @@ class A_Instruction(Instruction):
 
   def resolve(self, known_symbols):
     src = self.expression
-    try:
-      val = int(src[1:])
-    except ValueError:
+    val = Instruction.parse_numeric_constant(src[1:])
+    if val is None:
       label = src[1:]
       if not label in known_symbols:
-        raise Exception(f'Unknown label {label}')
+        raise NameError(f'Unknown label {label}')
       val = known_symbols[label]
 
     return f'0{val:015b}'
@@ -370,4 +401,15 @@ def test_blink():
   out = asm.dumps()
 
   assert expected == out
+
+def test_hex_bin_consts():
+  with open('tests/blink.hack') as fh:
+    expected = fh.read().strip()
+
+  asm = Assembler('tests/blink_hex_bin.asm')
+  asm.assemble()
+  out = asm.dumps()
+
+  assert expected == out
+
 
