@@ -4,12 +4,12 @@
   D = 0
 
 (WRITE_1_LOOP)
-  // write to SCREEN+W
+  // write to SCREEN+D
   @SCREEN
   A=A+D
   M=1
 
-  // increment W
+  // increment D
   D=D+1
 
   // loop if D is smaller than A
@@ -26,12 +26,12 @@
   D=0
 
 (WRITE_0_LOOP)
-  // write to SCREEN+W
+  // write to SCREEN+D
   @SCREEN
   A=A+D
   M=0
 
-  // increment W
+  // increment D
   D=D+1
 
   // loop if D is smaller than A
