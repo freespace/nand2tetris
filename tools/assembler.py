@@ -1,10 +1,11 @@
 #!/usr/bin/env python3
 
+import sys
 import click
 
 @click.command()
 @click.option('-i', '--input-asm', type=click.Path(dir_okay=False, exists=True),
-              required=True,
+              required=False,
               help='Input assembly file')
 @click.option('-o', '--output-hack', type=click.Path(dir_okay=False),
               help='Output hack file')
@@ -52,7 +53,7 @@ class Assembler:
   # start of variables address space
   VARIABLES_START_ADDRESS = 16
 
-  def __init__(self, input_asm, output_hack=None, compat=False, pretty_print=False, annotate=False):
+  def __init__(self, input_asm=None, output_hack=None, compat=False, pretty_print=False, annotate=False):
     self._input_asm = input_asm
     self._output_hack = output_hack
     self._compat = compat
@@ -78,9 +79,14 @@ class Assembler:
       with open(self._output_hack, 'w') as fh:
         fh.write(self.dumps())
 
-  def assemble(self):
-    with open(self._input_asm) as fh:
-      asm_lines = fh.readlines()
+  def assemble(self, asm_text=None):
+    if asm_text:
+      asm_lines = asm_text.split('\n')
+    elif self._input_asm:
+      with open(self._input_asm) as fh:
+        asm_lines = fh.readlines()
+    else:
+      asm_lines = sys.stdin.readlines()
 
     # remove white space
     asm_lines = [l.strip() for l in asm_lines]
@@ -124,7 +130,7 @@ class Assembler:
           self.known_symbols[sym] = variable_addr
           variable_addr += 1
 
-      machine_code = inst.resolve(self.known_symbols)
+      machine_code = inst.resolve(self.known_symbols, compat=self._compat)
 
       # if pretty print is not set or in compat mode do not emit _ spacers
       if self._compat or not self._pretty_print:
@@ -255,10 +261,13 @@ class Instruction:
     """
     raise NotImplementedError()
 
-  def resolve(self, known_symbols):
+  def resolve(self, known_symbols, compat=False):
     """
     Resolves this instruction into HACK machine code. Returns
     machine code as text, suitable for use with $readmemb in verilog.
+
+    If compat is True then all use of non-HACK compatible instructions
+    will fail.
     """
     raise NotImplementedError()
 
@@ -270,7 +279,7 @@ class A_Instruction(Instruction):
     else:
       return [v]
 
-  def resolve(self, known_symbols):
+  def resolve(self, known_symbols, compat=False):
     src = self.expression
     val = Instruction.parse_numeric_constant(src[1:])
     if val is None:
@@ -322,7 +331,7 @@ class C_Instruction(Instruction):
     else:
       return 0
 
-  def resolve(self, known_symbols):
+  def resolve(self, known_symbols, compat=False):
     a = int('M' in self.comp)
     w = int('W' in self.comp)
     d1 = int('A' in self.dest)
@@ -332,6 +341,9 @@ class C_Instruction(Instruction):
     j1 = int(self.jump in 'JLT JLE JNE')
     j2 = int(self.jump in 'JLE JGE JEQ')
     j3 = int(self.jump in 'JGT JGE JNE')
+
+    if compat and (w or d4):
+      raise SyntaxError('W is not available when in compatibility mode')
 
     comp_table = {
         '0'     : '101010',
@@ -414,4 +426,5 @@ def test_hex_bin_consts():
 
   assert expected == out
 
-
+def test_decimal_consts():
+  asm = Assembler().assemble('@256')
