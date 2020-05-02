@@ -10,7 +10,7 @@ module Top_tb;
   wire ledr_n;
   wire ledg_n;
 
-  Top #(800, 1, 400, "blink_short.hack") UUT (clk,
+  Top #(800, 1, 400) UUT (clk,
            s_clk,
            s_data,
            s_reset,
