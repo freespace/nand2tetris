@@ -81,8 +81,9 @@ class VM2ASM:
 
     # 2nd pass, emit asm
     for op in operations:
-      for a in op.get_annotations():
-        self.asm_output.append(f'// {a}')
+      if self._annotate:
+        for a in op.get_annotations():
+          self.asm_output.append(f'// {a}')
 
       self.asm_output += op.resolve(known_symbols).to_list(indent=4)
 
