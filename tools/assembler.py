@@ -62,7 +62,7 @@ class Assembler:
     self.known_symbols = dict(self.PREDEFINED_LABELS)
     self.hack_output = []
 
-    if self._annotate:
+    if annotate:
       self.hack_output.append(f'// SOURCE FILE={input_asm}')
 
   def dumps(self):
@@ -73,8 +73,10 @@ class Assembler:
 
   def write_hack(self):
     if self._output_hack is None:
-      for h in self.hack_output:
-        print(h)
+      print(self.dumps())
+    else:
+      with open(self._output_hack, 'w') as fh:
+        fh.write(self.dumps())
 
   def assemble(self):
     with open(self._input_asm) as fh:
@@ -362,8 +364,8 @@ class C_Instruction(Instruction):
       comp = comp.replace('M', 'A')
 
     if w:
-      # replace W with D in comp for lookup purposes
-      comp = comp.replace('W', 'D')
+      # replace W with A in comp for lookup purposes
+      comp = comp.replace('W', 'A')
 
     try:
       c1_c6 = comp_table[comp]

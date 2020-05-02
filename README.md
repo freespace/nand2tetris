@@ -29,7 +29,7 @@ prior to transition is what matters. So it takes another nop for the write to
 commit.
 
 ### Update 2020-04-29
-I "optimised" memory access by shifting the RAM clock 1/2 period 
+I "optimised" memory access by shifting the RAM clock 1/2 period
 (i.e. `ram_clk = ~clk`). This allows `addressM` to be present at the rise edge
 of the RAM clock. This means a sequence like
 
@@ -49,7 +49,7 @@ Note that I wrote the assembler before I realised it was project 6.
 
 eXtended Register
 -----------------
-Project 5.1 extends the HACK platform to implement an additional `W` register.
+Project 05x extends the HACK platform to implement an additional `W` register.
 This extended platform is called HACKx and it extends the C-instruction from:
 
 ```
@@ -60,11 +60,10 @@ This extended platform is called HACKx and it extends the C-instruction from:
 
 Where
 
-  - `w` works like `a`. When it is SET the `D` register supplies the `x` input
-      to the ALU. When it is UNSET the `W` register supplies the `x` input to
-      the ALU.
+  - `/w a` forms a 2-bit vector that selects the `x` input of the ALU from `A`,
+    `inM` or `W` corresponding to `00`, `01`, `10`. `11` is undefined.
   - `d4` works like `d1..d3` but inverted. Wwhen it is UNSET the `W` register takes on the
-    ALU output on the next clock. 
+    ALU output on the next clock.
 
 The interpretation of `w` and `d4` has been chosen so that programs intended for
 the HACK platform can run on the HACKx platform without modification. Yay
@@ -73,6 +72,11 @@ backward compatibility!
 > I named the register W as a homage to the W register found in PIC
 > microcontrollers.
 
+Chapters and Projects
+=====================
+
+Chapters 1-5 are implemented in their respective `projects/` folder. Chapters 6
+onwards live in `tools/` b/c that makes the mose sense to me.
 
 Development Environment
 =======================

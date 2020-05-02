@@ -33,6 +33,7 @@ module CPUx(
                .sel(op),
                .a(inst),
                .b(alu_out));
+
   // A register, loads only if d1 is asserted or if op is 0
   wire[15:0] a_out;
   wire a_load = d1 | ~op;
@@ -43,23 +44,6 @@ module CPUx(
              .load(a_load),
              .in(a_in));
 
-  // decides whether we use the reg A or inM for ALU
-  // operation
-  wire[15:0] alu_y;
-  Mux16 mux_ia(.out(alu_y),
-               .sel(ia),
-               .a(a_out),
-               .b(inM));
-
-  // D register, loads only if d2 is asserted and we are
-  // executing a C instruction
-  wire[15:0] d_out;
-  wire d_load = d2 & op;
-  Register D(.out(d_out),
-             .clk(clk),
-             .load(d_load),
-             .in(alu_out));
-
   wire[15:0] w_out;
   // for backward compat d4 is consider set when it is 0
   wire w_load = d4 & op;
@@ -68,16 +52,26 @@ module CPUx(
              .load(w_load),
              .in(alu_out));
 
+  // decides whether we use the reg A or inM or W for ALU
+  // operation
+  wire[15:0] alu_y;
+  Mux4Way16 mux_ia_w(.out(alu_y),
+                 .sel({w, ia}),
+                 .a(a_out),       //00
+                 .b(inM),         //01
+                 .c(w_out),       //10
+                 .d(16'bx));           //11
 
-  // decides whether we use the reg D or W for ALU
-  // operation. When w is 0 we use W and when 1 we use D
+  // D register, loads only if d2 is asserted and we are
+  // executing a C instruction
   wire[15:0] alu_x;
-  Mux16 mux_w(.out(alu_x),
-              .sel(w),
-              .a(d_out),
-              .b(w_out));
+  wire d_load = d2 & op;
+  Register D(.out(alu_x),
+             .clk(clk),
+             .load(d_load),
+             .in(alu_out));
 
-  // connect c1-c6 to ALU configuration bits
+
   wire ng, zr;
   ALU alu(.out(alu_out),
           .zr(zr),
