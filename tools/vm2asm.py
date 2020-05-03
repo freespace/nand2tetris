@@ -556,6 +556,9 @@ class PUSH_Operation(Operation):
             $inc_sp
             ''')
 
+    # this is the sme as push_content_of_ptr but
+    # minus the deference step for those segments
+    # with fixed addresses
     def push_content_of_memory(mem_addr):
       return ASM(f'''
           // load memory address
@@ -704,6 +707,8 @@ class POP_Operation(Operation):
               $dec_sp
               ''')
 
+    # this is like pop_into_ptr but without the dereferencing step
+    # for those segments with fixed base address.
     def pop_into_memory(mem_addr):
       return ASM(f'''
           $load_sp
