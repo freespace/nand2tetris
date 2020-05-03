@@ -159,6 +159,9 @@ class Assembler:
 
       self.hack_output.append(machine_code)
 
+    # allow chaining, e.g. self.assemble().dumps()
+    return self
+
   def _parse_A_inst(self, l, source_block):
     return [A_Instruction(l, source_block=source_block)];
 
@@ -236,19 +239,28 @@ class Instruction:
     Who even uses octal.
 
     Returns an integer if parsing was successful, None otherwise.
+
+    If overflow would occur the value is truncated to fit and a warning
+    is emitted.
     """
     try:
+      ret = None
       if token.isdigit():
-        return int(token)
+        ret = int(token)
 
       token = token.replace('_', '')
 
       if token[:2] == '0x':
-        return int(token, 16)
+        ret = int(token, 16)
 
       if token[:2] == '0b':
-        return int(token, 2)
-      return None
+        ret = int(token, 2)
+
+      # our ISR can only accept 15 bit constants
+      if ret and ret > 2**15-1:
+        sys.stderr.write(f'WARNING: literal value {token} truncated to 15 bits\n')
+        ret = ret & 0x7fff
+      return ret
     except ValueError:
       raise SyntaxError(f'Failed to parse numeric constant {token}')
 
@@ -439,4 +451,16 @@ def test_hex_bin_consts():
   assert expected == out
 
 def test_decimal_consts():
-  asm = Assembler().assemble('@256')
+  asm = Assembler().assemble('@256').dumps()
+  print(asm)
+
+def test_hex_consts():
+  asm = Assembler().assemble('@0xFFF1').dumps()
+  print(asm)
+
+def test_const_overflow():
+  asm = Assembler().assemble('@0x8001').dumps()
+  assert asm == '0000000000000001'
+
+  asm = Assembler().assemble('@0xFFFF').dumps()
+  assert asm == '0111111111111111'
