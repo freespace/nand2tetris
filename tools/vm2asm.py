@@ -26,6 +26,10 @@ from assembler import Assembler
               help='Set base address of the this (THIS) segment')
 @click.option('--THAT', 'THAT', type=int,
               help='Set base address of the local (THAT) segment')
+@click.option('--RAM', 'ram_specs', type=str, multiple=True,
+              help='Use format AAA=VVV to specify RAM[AAA] = VVV')
+@click.option('--no-init', is_flag=True,
+              help='If given no initialisation code is generated')
 def main(*args, **kwargs):
   translator = VM2ASM(*args, **kwargs)
   translator.translate()
@@ -51,7 +55,17 @@ class VM2ASM:
       'pointer' : 2,
   }
 
-  def __init__(self, input_vm, output_asm=None, compat=False, annotate=False, LCL=None, ARG=None, THIS=None, THAT=None):
+  def __init__(self,
+               input_vm=None,
+               output_asm=None,
+               compat=False,
+               annotate=False,
+               no_init=False,
+               ram_specs=None,
+               LCL=None,
+               ARG=None,
+               THIS=None,
+               THAT=None):
     self._input_vm = input_vm
     self._output_asm = output_asm
     self._compat = compat
@@ -60,36 +74,45 @@ class VM2ASM:
     self.asm_output = []
     if annotate:
       self.asm_output.append(f'// SOURCE FILE={input_vm}')
+
+    if not no_init:
+      def set_ram(addr, value):
+        asm = ASM(f'''
+            // setup {addr}
+            @{value}
+            D=A
+            @{addr}
+            M=D
+            ''')
+        self.asm_output += asm.to_list(indent=4)
+
       self.asm_output.append(f'// INIT BEGIN')
+      set_ram('SP', VM2ASM.STACK_BASE_ADDRESS)
 
-    def setup_pointer(ptr_name, ptr_value):
-      asm = ASM(f'''
-          // setup {ptr_name}
-          @{ptr_value}
-          D=A
-          @{ptr_name}
-          M=D
-          ''')
-      self.asm_output += asm.to_list(indent=4)
+      # if any of the runtime segment base address were given we set them. This is
+      # needed to run the test programs supplied by the course
+      if LCL:
+        set_ram('LCL', LCL)
 
-    setup_pointer('SP', VM2ASM.STACK_BASE_ADDRESS)
+      if ARG:
+        set_ram('ARG', ARG)
 
-    # if any of the runtime segment base address were given we set them. This is
-    # needed to run the test programs supplied by the course
-    if LCL:
-      setup_pointer('LCL', LCL)
+      if THIS:
+        set_ram('THIS', THIS)
 
-    if ARG:
-      setup_pointer('ARG', ARG)
+      if THAT:
+        set_ram('THAT', THAT)
 
-    if THIS:
-      setup_pointer('THIS', THIS)
+      if ram_specs and len(ram_specs):
+        for spec in ram_specs:
+          addr, val = spec.split('=')
+          addr = int(addr)
+          val = int(val)
+          set_ram(addr, val)
 
-    if THAT:
-      setup_pointer('THAT', THAT)
+      if annotate:
+        self.asm_output.append(f'// INIT END')
 
-    if annotate:
-      self.asm_output.append(f'// INIT END')
 
   def write_asm(self):
     if self._output_asm is None:
@@ -120,11 +143,20 @@ class VM2ASM:
     known_symbols = {}
     # 1st pass, convert to Operation objects and gather
     # symbols
+
+    # the VM specification is a big vague about
+    # when a function "finished". AFAICT it doesn't
+    # so this really just tracks the last function operation
+    # encountered
+    current_function_name = None
     for l in vm_lines:
       source_block.append(l)
-      op = self._parse(l)
+      op = self._parse(l, current_function_name)
       if op:
         operations.append(op)
+
+        if type(op) == FUNCTION_Operation:
+          current_function_name = op.function_name
 
     # 2nd pass, emit asm
     for op in operations:
@@ -137,7 +169,7 @@ class VM2ASM:
     # this allows chaining, e.g. self.translate().dumps()
     return self
 
-  def _parse(self, source_line):
+  def _parse(self, source_line, current_function_name):
     if '//' in source_line:
       exp, _ = source_line.split('//', 1)
     else:
@@ -170,6 +202,14 @@ class VM2ASM:
       # memory management
       'push': PUSH_Operation,
       'pop' : POP_Operation,
+
+      # program flow
+      'label'  : LABEL_Operation,
+      'goto'   : GOTO_Operation,
+      'if-goto': IFGOTO_Operation,
+
+      # function calling
+      'function': FUNCTION_Operation,
     }
 
     try:
@@ -177,7 +217,7 @@ class VM2ASM:
     except KeyError:
       raise SyntaxError(f'Unknown operation {op}')
 
-    return op_cls(args, compat=self._compat)
+    return op_cls(args, compat=self._compat, function_name=current_function_name)
 
 class ASM:
   """
@@ -242,7 +282,7 @@ class ASM:
   def to_list(self, indent=0, comments=True):
     # this ensures if the instruction is reused it still
     # emits different IDs
-    self.MACROS['$_'] = f'L{ASM.ID_CNT}__'
+    self.MACROS['$_'] = f'__{ASM.ID_CNT}__'
     ASM.ID_CNT += 1
 
     txt = self._text
@@ -271,9 +311,10 @@ class ASM:
 
 
 class Operation:
-  def __init__(self, args=None, compat=False):
+  def __init__(self, args=None, compat=False, function_name=None):
     self.args = args
     self.compat = compat
+    self.function_name = function_name
 
   @staticmethod
   def validate_segment_index(segment, index):
@@ -285,6 +326,13 @@ class Operation:
     if segment in VM2ASM.SEGMENT_SIZE_TABLE:
       if index >= VM2ASM.SEGMENT_SIZE_TABLE[segment]:
         raise ValueError(f'{index} out of range for segment {segment}')
+
+  @property
+  def _label_in_namespace(self):
+    label = self.args[0]
+    if self.function_name:
+      label = f'{self.function_name}:{label}'
+    return label
 
   def resolve(self, known_symbols=None):
     """
@@ -575,7 +623,6 @@ class PUSH_Operation(Operation):
           $inc_sp
           ''')
 
-
     if segment in VM2ASM.SEGMENT_BASE_ADDR_TABLE:
       ptr_addr = VM2ASM.SEGMENT_BASE_ADDR_TABLE[segment]
       return push_content_of_ptr(ptr_addr, index)
@@ -605,12 +652,7 @@ class PUSH_Operation(Operation):
           // of the stack
           M=D
 
-          // calculate new top of stack
-          D=A+1
-
-          // update the stack pointer
-          @SP
-          M=D
+          $inc_sp
           ''')
 
     else:
@@ -744,6 +786,66 @@ class POP_Operation(Operation):
 
     else:
       raise NameError(f'Unknown segment {segment}')
+
+
+class LABEL_Operation(Operation):
+  def resolve(self, known_symbols=None):
+    # we don't use $ID_ macro here b/c these labels
+    # originate from the user and could have scope beyond the
+    # assembly emitted for this operation
+    return ASM(f'({self._label_in_namespace})')
+
+class GOTO_Operation(Operation):
+  def resolve(self, known_symbols=None):
+    # see comment in LABEL_Operation.resolve
+    return ASM(f'''
+        // load jump destination into A
+        @{self._label_in_namespace}
+
+        // unconditional jump
+        0;JEQ
+        ''')
+
+class IFGOTO_Operation(Operation):
+  def resolve(self, known_symbols=None):
+    # see comment in LABEL_Operation.resolve
+    return ASM(f'''
+        $load_sp
+
+        // pop value into D
+        A=A-1
+        D=M
+
+        // we have to do this now b/c once
+        // the jump executes it is too late
+        $dec_sp
+
+        // load jump destination
+        @{self._label_in_namespace}
+
+        // take a leaf from most languages: true
+        // means !0
+        D;JNE
+        ''')
+
+
+class FUNCTION_Operation(Operation):
+  def __init__(self, *args, **kwargs):
+    super().__init__(*args, **kwargs)
+
+    # do this avoid any possibility we are associated with
+    # another function
+    self.function_name = self.args[0]
+
+  def resolve(self, known_symbols=None):
+    # XXX STUB
+    return ASM('')
+
+
+#################
+# HERE BE TESTS #
+# ###############
+
 
 def test_add():
   asm = ADD_Operation().resolve()
@@ -894,46 +996,79 @@ def test_compat():
     assert False, 'Should have failed'
 
 def test_pop_compat():
-  translator = VM2ASM(None, LCL=300, ARG=400, THIS=3000, THAT=3010, annotate=True, compat=True)
+  translator = VM2ASM(LCL=300, ARG=400, THIS=3000, THAT=3010, annotate=True, compat=True)
   asm = translator.translate('pop argument 1').dumps()
   Assembler().assemble(asm)
   print(asm)
 
 def test_pop_argument():
-  translator = VM2ASM(None, LCL=300, ARG=400, THIS=3000, THAT=3010, annotate=True)
+  translator = VM2ASM(LCL=300, ARG=400, THIS=3000, THAT=3010, annotate=True)
   asm = translator.translate('pop argument 1').dumps()
   Assembler().assemble(asm)
 
 def test_pop_local():
-  translator = VM2ASM(None, LCL=300, ARG=400, THIS=3000, THAT=3010, annotate=True)
+  translator = VM2ASM(LCL=300, ARG=400, THIS=3000, THAT=3010, annotate=True)
   asm = translator.translate('pop local 1').dumps()
   Assembler().assemble(asm)
 
 def test_pop_static():
-  translator = VM2ASM(None, LCL=300, ARG=400, THIS=3000, THAT=3010, annotate=True)
+  translator = VM2ASM(LCL=300, ARG=400, THIS=3000, THAT=3010, annotate=True)
   asm = translator.translate('pop static 1').dumps()
   Assembler().assemble(asm)
 
 def test_pop_pointer():
-  translator = VM2ASM(None, LCL=300, ARG=400, THIS=3000, THAT=3010, annotate=True)
+  translator = VM2ASM(LCL=300, ARG=400, THIS=3000, THAT=3010, annotate=True)
   asm = translator.translate('pop pointer 1').dumps()
   Assembler().assemble(asm)
 
 def test_pop_this():
-  translator = VM2ASM(None, LCL=300, ARG=400, THIS=3000, THAT=3010, annotate=True)
+  translator = VM2ASM(LCL=300, ARG=400, THIS=3000, THAT=3010, annotate=True)
   asm = translator.translate('pop this 1').dumps()
   Assembler().assemble(asm)
 
 def test_pop_that():
-  translator = VM2ASM(None, LCL=300, ARG=400, THIS=3000, THAT=3010, annotate=True)
+  translator = VM2ASM(LCL=300, ARG=400, THIS=3000, THAT=3010, annotate=True)
   asm = translator.translate('pop that 1').dumps()
   Assembler().assemble(asm)
 
 def test_pop_temp():
-  translator = VM2ASM(None, LCL=300, ARG=400, THIS=3000, THAT=3010, annotate=True)
+  translator = VM2ASM(LCL=300, ARG=400, THIS=3000, THAT=3010, annotate=True)
   asm = translator.translate('pop temp 1').dumps()
   Assembler().assemble(asm)
 
+def test_label():
+  translator = VM2ASM(no_init=True)
+  asm = translator.translate('label HELLO').dumps().strip()
+  assert asm == '(HELLO)'
+  Assembler().assemble(asm)
+
+def test_label_in_function():
+  translator = VM2ASM(no_init=True)
+  asm = translator.translate('''
+      function HELLO 0
+      label WORLD
+  ''').dumps()
+  assert 'HELLO:WORLD' in asm
+  Assembler().assemble(asm)
+
+def test_goto():
+  translator = VM2ASM(no_init=True)
+  asm = translator.translate('''
+      label abc
+      goto abc
+  ''').dumps()
+  Assembler().assemble(asm)
+
+def test_ifgoto():
+  translator = VM2ASM(no_init=True, annotate=True)
+  asm = translator.translate('''
+      label abc
+      push constant 1
+      if-goto abc
+  ''').dumps()
+  Assembler().assemble(asm)
+  print(asm)
+
+
 if __name__ == '__main__':
   main()
-
