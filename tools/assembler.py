@@ -48,7 +48,19 @@ class Assembler:
                            THIS=3,
                            THAT=4,
                            SCREEN=16384,
-                           KBD=24576)
+                           KBD=24576,
+
+                           # Extension
+                           # =========
+                           # the 16 registers (R0-R15) cannot be used freely
+                           # b/c many has dual purpose when used in conjunction
+                           # with the VM. e.g. R0 is SP. To make it clear which
+                           # registers can be used as temp variables we define
+                           # T0..T2 which map to R5 and R7.
+                           T0 = 13,
+                           T1 = 14,
+                           T2 = 15,
+                           )
 
   # start of variables address space
   VARIABLES_START_ADDRESS = 16
@@ -60,7 +72,7 @@ class Assembler:
     self._annotate = annotate
     self._pretty_print = pretty_print
 
-    self.known_symbols = dict(self.PREDEFINED_LABELS)
+    self.known_symbols = dict(Assembler.PREDEFINED_LABELS)
     self.hack_output = []
 
     if annotate:

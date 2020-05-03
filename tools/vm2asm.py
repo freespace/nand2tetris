@@ -18,6 +18,14 @@ from assembler import Assembler
 @click.option('-A', '--annotate', is_flag=True,
               help=f'If given hack output will be annotated with source '
                    f'lines or PC counts')
+@click.option('--LCL', 'LCL', type=int,
+              help='Set base address of the local (LCL) segment')
+@click.option('--ARG', 'ARG', type=int,
+              help='Set base address of the argument (ARG) segment')
+@click.option('--THIS', 'THIS', type=int,
+              help='Set base address of the this (THIS) segment')
+@click.option('--THAT', 'THAT', type=int,
+              help='Set base address of the local (THAT) segment')
 def main(*args, **kwargs):
   translator = VM2ASM(*args, **kwargs)
   translator.translate()
@@ -27,8 +35,23 @@ class VM2ASM:
   STATIC_BASE_ADDRESS = 16
   STACK_BASE_ADDRESS = 256
   HEAP_BASE_ADDRESS = 16483
+  TEMP_BASE_ADDRESS = 5
 
-  def __init__(self, input_vm, output_asm=None, compat=False, annotate=False):
+  SEGMENT_BASE_ADDR_TABLE = {
+      'argument': 'ARG',
+      'local'   : 'LCL',
+      'static'  : '16',
+      'this'    : 'THIS',
+      'that'    : 'THAT',
+  }
+
+  SEGMENT_SIZE_TABLE = {
+      'static'  : 255- 16 + 1,
+      'temp'    : 8,
+      'pointer' : 2,
+  }
+
+  def __init__(self, input_vm, output_asm=None, compat=False, annotate=False, LCL=None, ARG=None, THIS=None, THAT=None):
     self._input_vm = input_vm
     self._output_asm = output_asm
     self._compat = compat
@@ -37,15 +60,36 @@ class VM2ASM:
     self.asm_output = []
     if annotate:
       self.asm_output.append(f'// SOURCE FILE={input_vm}')
+      self.asm_output.append(f'// INIT BEGIN')
 
-    setup_asm = ASM(f'''
-        // setup the stack
-        @{VM2ASM.STACK_BASE_ADDRESS}
-        D=A
-        @SP
-        M=D
-        ''')
-    self.asm_output += setup_asm.to_list(indent=4)
+    def setup_pointer(ptr_name, ptr_value):
+      asm = ASM(f'''
+          // setup {ptr_name}
+          @{ptr_value}
+          D=A
+          @{ptr_name}
+          M=D
+          ''')
+      self.asm_output += asm.to_list(indent=4)
+
+    setup_pointer('SP', VM2ASM.STACK_BASE_ADDRESS)
+
+    # if any of the runtime segment base address were given we set them. This is
+    # needed to run the test programs supplied by the course
+    if LCL:
+      setup_pointer('LCL', LCL)
+
+    if ARG:
+      setup_pointer('ARG', ARG)
+
+    if THIS:
+      setup_pointer('THIS', THIS)
+
+    if THAT:
+      setup_pointer('THAT', THAT)
+
+    if annotate:
+      self.asm_output.append(f'// INIT END')
 
   def write_asm(self):
     if self._output_asm is None:
@@ -60,9 +104,12 @@ class VM2ASM:
     """
     return '\n'.join(self.asm_output)
 
-  def translate(self):
-    with open(self._input_vm) as fh:
-      vm_lines = fh.readlines()
+  def translate(self, vm_text=None):
+    if vm_text:
+      vm_lines = vm_text.splitlines()
+    else:
+      with open(self._input_vm) as fh:
+        vm_lines = fh.readlines()
 
     # strip whitespace and remove empty lines
     vm_lines = [l.strip() for l in vm_lines]
@@ -86,6 +133,9 @@ class VM2ASM:
           self.asm_output.append(f'// {a}')
 
       self.asm_output += op.resolve(known_symbols).to_list(indent=4)
+
+    # this allows chaining, e.g. self.translate().dumps()
+    return self
 
   def _parse(self, source_line):
     if '//' in source_line:
@@ -119,6 +169,7 @@ class VM2ASM:
 
       # memory management
       'push': PUSH_Operation,
+      'pop' : POP_Operation,
     }
 
     try:
@@ -144,27 +195,41 @@ class ASM:
   a unique number.
   """
   MACRO_LOAD_SP='''
-                // updates A to point to top of stack
+                // MACRO=LOAD_SP
                 @SP
                 A=M
+                // MACRO_END
                 '''
+
   MACRO_SAVE_SP='''
+                // MACRO=SAVE_SP
                 // update SP, assumes new SP
                 // value is in A
                 D=A
                 @SP
                 M=D
-                '''
+                // MACRO_END
+               '''
+
   MACRO_DEC_SP='''
-               // if we pop 2 operands and push 1 result
-               // then we simply need to subtract 1 from
-               // SP
+               // MACRO=DEC_SP
                @SP
                M=M-1
+               // MACRO_END
                '''
+
+  MACRO_INC_SP='''
+               // MACRO=INC_SP
+               @SP
+               M=M+1
+               // MACRO_END
+               '''
+
   MACROS={'$load_sp': MACRO_LOAD_SP,
           '$save_sp': MACRO_SAVE_SP,
-          '$dec_sp' : MACRO_DEC_SP}
+          '$dec_sp' : MACRO_DEC_SP,
+          '$inc_sp' : MACRO_INC_SP,
+          }
 
   ID_CNT = 0
 
@@ -181,8 +246,8 @@ class ASM:
     ASM.ID_CNT += 1
 
     txt = self._text
-    # insert macros
 
+    # insert macros
     for macro_name, macro_asm in self.MACROS.items():
       if macro_name in txt:
         txt = txt.replace(macro_name, macro_asm)
@@ -192,7 +257,6 @@ class ASM:
       for l in txt.splitlines():
         if l[:2] != '//':
           parts.append(l)
-
     else:
       parts = txt.splitlines()
 
@@ -210,7 +274,17 @@ class Operation:
   def __init__(self, args=None, compat=False):
     self.args = args
     self.compat = compat
-    pass
+
+  @staticmethod
+  def validate_segment_index(segment, index):
+    try:
+      index = int(index)
+    except ValueError:
+      raise ValueError(f'Invalid index value {index}')
+
+    if segment in VM2ASM.SEGMENT_SIZE_TABLE:
+      if index >= VM2ASM.SEGMENT_SIZE_TABLE[segment]:
+        raise ValueError(f'{index} out of range for segment {segment}')
 
   def resolve(self, known_symbols=None):
     """
@@ -430,9 +504,88 @@ class GTE_Operation(Compare_Operation):
     return asm
 
 class PUSH_Operation(Operation):
+  """
+  Takes value at segment[index] and pushes it onto
+  the stack. SP is incremented.
+  """
   def resolve(self, known_symbols=None):
     segment, index = self.args
-    if segment == 'constant':
+    Operation.validate_segment_index(segment, index)
+    index = int(index)
+
+    def push_content_of_ptr(ptr_addr, offset):
+      if offset == 0:
+        return ASM(f'''
+            // load the pointer value
+            @{ptr_addr}
+
+            // dereference the pointer
+            A=M
+
+            // save the value into D
+            D=M
+
+            $load_sp
+
+            // write value to top of stack
+            M=D
+
+            $inc_sp
+            ''')
+      else:
+        return ASM(f'''
+            // load the pointer value into D
+            @{ptr_addr}
+            D=M
+
+            // load the offset into A
+            @{offset}
+
+            // calculate the new pointer value
+            // and dereference
+            A=A+D
+
+            // save the value into D
+            D=M
+
+            $load_sp
+
+            // write value to top of stack
+            M=D
+
+            $inc_sp
+            ''')
+
+    if segment in VM2ASM.SEGMENT_BASE_ADDR_TABLE:
+      ptr_addr = VM2ASM.SEGMENT_BASE_ADDR_TABLE[segment]
+      return push_content_of_ptr(ptr_addr, index)
+
+    elif segment == 'temp':
+      # b/c temp is fixed we can calculate the pointer address
+      # directly
+      ptr_addr = VM2ASM.TEMP_BASE_ADDRESS + index
+      return ASM(f'''
+          // load the pointer value
+          @{ptr_addr}
+
+          // save the value into D
+          D=M
+
+          $load_sp
+
+          // write value to top of stack
+          M=D
+
+          $inc_sp
+          ''')
+
+    elif segment == 'pointer':
+      # set the addr of this (0) or that (1)
+      ptr_name = ['this', 'that'][index]
+      ptr_addr = VM2ASM.SEGMENT_BASE_ADDR_TABLE[ptr_name]
+      return push_content_of_ptr(ptr_addr, 0)
+
+    elif segment == 'constant':
       return ASM(f'''
           // load the constant into D
           @{index}
@@ -452,31 +605,153 @@ class PUSH_Operation(Operation):
           @SP
           M=D
           ''')
-    raise NotImplementedError()
+
+    else:
+      raise NameError(f'Unknown segment {segment}')
+
+
+class POP_Operation(Operation):
+  """
+  POPs value at the top of the stack into segment[index]. SP
+  is decremented.
+  """
+  def resolve(self, known_symbols=None):
+    segment, index = self.args
+    Operation.validate_segment_index(segment, index)
+    index = int(index)
+
+    def pop_into_ptr(ptr_addr, offset):
+      if offset == 0:
+        return ASM(f'''
+            $load_sp
+            A=A-1
+
+            // load top-of-stack value into D
+            D=M
+
+            // load the pointer value
+            @{ptr_addr}
+
+            // dereference the pointer
+            A=M
+
+            // write D into destination
+            M=D
+
+            $dec_sp
+            ''')
+      else:
+        if self.compat:
+          return ASM(f'''
+              // load the pointer value into D
+              @{ptr_addr}
+              D=M
+
+              // load the offset into A
+              @{offset}
+
+              // calculate the new pointer value
+              // and save into D
+              D=A+D
+
+              // save the value into T0
+              @T0
+              M=D
+
+              $load_sp
+              A=A-1
+
+              // load top-of-stack value into D
+              D=M
+
+              // load pointer value
+              @T0
+
+              // dereference the pointer
+              A=M
+
+              // write D into destination
+              M=D
+
+              $dec_sp
+              ''')
+        else:
+          return ASM(f'''
+              $load_sp
+              A=A-1
+
+              // load top-of-stack value into W
+              W=M
+
+              // load the pointer value into D
+              @{ptr_addr}
+              D=M
+
+              // load the offset into A
+              @{offset}
+
+              // calculate the new pointer value
+              // and dereference
+              A=A+D
+
+              // write W into destination
+              M=W
+
+              $dec_sp
+              ''')
+
+    if segment in VM2ASM.SEGMENT_BASE_ADDR_TABLE:
+      ptr_addr = VM2ASM.SEGMENT_BASE_ADDR_TABLE[segment]
+      return pop_into_ptr(ptr_addr, index)
+
+    elif segment == 'temp':
+      # b/c temp is fixed we can calculate the pointer address
+      # directly
+      ptr_addr = VM2ASM.TEMP_BASE_ADDRESS + index
+      return ASM(f'''
+          $load_sp
+          A=A-1
+
+          // load top-of-stack value into D
+          D=M
+
+          // load the pointer value
+          @{ptr_addr}
+
+          // write D into destination
+          M=D
+
+          $dec_sp
+          ''')
+
+    elif segment == 'pointer':
+      # set the addr of this (0) or that (1)
+      ptr_name = ['this', 'that'][index]
+      ptr_addr = VM2ASM.SEGMENT_BASE_ADDR_TABLE[ptr_name]
+      return pop_into_ptr(ptr_addr, 0)
+
+    else:
+      raise NameError(f'Unknown segment {segment}')
 
 def test_add():
   asm = ADD_Operation().resolve()
   print(asm)
   expected = ASM('''
-        // updates A to point to top of stack
-        @SP
-        A=M
-
-        // pop y into D
-        A=A-1
-        D=M
-
-        // pop x into M
-        A=A-1
-
-        // do the operation
-        M=M+D
-
-        // if we pop 2 operands and push 1 result
-        // then we simply need to subtract 1 from
-        // SP
-        @SP
-        M=M-1
+      // MACRO=LOAD_SP
+      @SP
+      A=M
+      // MACRO_END
+      // pop y into D
+      A=A-1
+      D=M
+      // pop x into M
+      A=A-1
+      // do the operation
+      M=M+D
+      // MACRO=DEC_SP
+      @SP
+      M=M-1
+      // MACRO_END
         ''')
   assert str(asm) == str(expected)
 
@@ -540,6 +815,60 @@ def test_unique_labels():
   # we should generate unique asm every time
   assert str(asm1) != str(asm1)
 
+def test_segment_setup():
+  translator = VM2ASM(None, LCL=300, ARG=400, THIS=3000, THAT=3010)
+  Assembler().assemble(translator.dumps())
+
+def test_push_argument():
+  translator = VM2ASM(None, LCL=300, ARG=400, THIS=3000, THAT=3010, annotate=True)
+  translator.translate('push argument 2')
+  asm = translator.dumps()
+  Assembler().assemble(asm)
+
+def test_push_local():
+  translator = VM2ASM(None, LCL=300, ARG=400, THIS=3000, THAT=3010, annotate=True)
+  translator.translate('push local 1')
+  asm = translator.dumps()
+  Assembler().assemble(asm)
+
+def test_push_this():
+  translator = VM2ASM(None, LCL=300, ARG=400, THIS=3000, THAT=3010, annotate=True)
+  translator.translate('push this 1')
+  asm = translator.dumps()
+  Assembler().assemble(asm)
+
+def test_push_that():
+  translator = VM2ASM(None, LCL=300, ARG=400, THIS=3000, THAT=3010, annotate=True)
+  translator.translate('push that 1')
+  asm = translator.dumps()
+  Assembler().assemble(asm)
+
+def test_push_pointer():
+  translator = VM2ASM(None, LCL=300, ARG=400, THIS=3000, THAT=3010, annotate=True)
+  translator.translate('push that 1')
+  asm = translator.dumps()
+  Assembler().assemble(asm)
+
+def test_push_static():
+  translator = VM2ASM(None, annotate=True)
+  translator.translate('push static 1')
+  asm = translator.dumps()
+  Assembler().assemble(asm)
+
+def test_push_temp():
+  translator = VM2ASM(None, annotate=True)
+  translator.translate('push temp 1')
+  asm = translator.dumps()
+  Assembler().assemble(asm)
+
+def test_segment_index_validation():
+  try:
+    translator = VM2ASM(None, annotate=True)
+    translator.translate('push temp 10')
+    assert 'Should have failed'
+  except ValueError:
+    pass
+
 def test_compat():
   asm = EQ_Operation(compat=True).resolve()
   Assembler(compat=True).assemble(str(asm))
@@ -551,6 +880,47 @@ def test_compat():
     pass
   else:
     assert False, 'Should have failed'
+
+def test_pop_compat():
+  translator = VM2ASM(None, LCL=300, ARG=400, THIS=3000, THAT=3010, annotate=True, compat=True)
+  asm = translator.translate('pop argument 1').dumps()
+  Assembler().assemble(asm)
+  print(asm)
+
+def test_pop_argument():
+  translator = VM2ASM(None, LCL=300, ARG=400, THIS=3000, THAT=3010, annotate=True)
+  asm = translator.translate('pop argument 1').dumps()
+  Assembler().assemble(asm)
+
+def test_pop_local():
+  translator = VM2ASM(None, LCL=300, ARG=400, THIS=3000, THAT=3010, annotate=True)
+  asm = translator.translate('pop local 1').dumps()
+  Assembler().assemble(asm)
+
+def test_pop_static():
+  translator = VM2ASM(None, LCL=300, ARG=400, THIS=3000, THAT=3010, annotate=True)
+  asm = translator.translate('pop static 1').dumps()
+  Assembler().assemble(asm)
+
+def test_pop_pointer():
+  translator = VM2ASM(None, LCL=300, ARG=400, THIS=3000, THAT=3010, annotate=True)
+  asm = translator.translate('pop pointer 1').dumps()
+  Assembler().assemble(asm)
+
+def test_pop_this():
+  translator = VM2ASM(None, LCL=300, ARG=400, THIS=3000, THAT=3010, annotate=True)
+  asm = translator.translate('pop this 1').dumps()
+  Assembler().assemble(asm)
+
+def test_pop_that():
+  translator = VM2ASM(None, LCL=300, ARG=400, THIS=3000, THAT=3010, annotate=True)
+  asm = translator.translate('pop that 1').dumps()
+  Assembler().assemble(asm)
+
+def test_pop_temp():
+  translator = VM2ASM(None, LCL=300, ARG=400, THIS=3000, THAT=3010, annotate=True)
+  asm = translator.translate('pop temp 1').dumps()
+  Assembler().assemble(asm)
 
 if __name__ == '__main__':
   main()
