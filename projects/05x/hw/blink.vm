@@ -1,0 +1,44 @@
+label LOOP_RESET
+
+  // setup counter into temp 0
+  push constant 0
+  pop temp 0
+
+  // toggle the value to write
+  push constant 0
+  not
+  pop temp 1
+
+label LOOP_START
+
+  // calculate the addr to write
+  // to as SCREEN + temp0
+  push constant $SCREEN
+  push temp 0
+  add
+
+  // set THIS to the write addr
+  pop pointer 0
+
+  // put the value to write
+  // on the stack
+  push temp 1
+
+  // do the write
+  pop this 0
+
+  // increment temp0
+  push temp 0
+  push constant 1
+  add
+
+  // save temp0
+  pop temp 0
+
+  // decide if we need to reset
+  push temp 0
+  push constant 255
+  lt
+
+  if-goto LOOP_START
+  goto LOOP_RESET
