@@ -1,6 +1,5 @@
 #!/usr/bin/env python3
 
-import time
 import click
 
 from assembler import Assembler
@@ -55,6 +54,10 @@ class VM2ASM:
       'pointer' : 2,
   }
 
+  PREDEFINED_CONSTANTS = {
+      '$SCREEN': 'SCREEN',
+  }
+
   def __init__(self,
                input_vm=None,
                output_asm=None,
@@ -70,6 +73,7 @@ class VM2ASM:
     self._output_asm = output_asm
     self._compat = compat
     self._annotate = annotate
+    self._known_symbols = dict(VM2ASM.PREDEFINED_CONSTANTS)
 
     self.asm_output = []
     if annotate:
@@ -140,7 +144,6 @@ class VM2ASM:
 
     operations = []
     source_block = []
-    known_symbols = {}
     # 1st pass, convert to Operation objects and gather
     # symbols
 
@@ -164,7 +167,7 @@ class VM2ASM:
         for a in op.get_annotations():
           self.asm_output.append(f'// {a}')
 
-      self.asm_output += op.resolve(known_symbols).to_list(indent=4)
+      self.asm_output += op.resolve(self._known_symbols).to_list(indent=4)
 
     # this allows chaining, e.g. self.translate().dumps()
     return self
@@ -317,15 +320,24 @@ class Operation:
     self.function_name = function_name
 
   @staticmethod
-  def validate_segment_index(segment, index):
+  def validate_segment_index(segment, index, known_symbols):
     try:
-      index = int(index)
-    except ValueError:
-      raise ValueError(f'Invalid index value {index}')
+      if index[0] == '$':
+        # try to resolve the constant
+        index = known_symbols[index]
+    except KeyError:
+      raise NameError(f'Unknown constant {index}')
 
     if segment in VM2ASM.SEGMENT_SIZE_TABLE:
+      try:
+        index = int(index)
+      except ValueError:
+        raise ValueError(f'Invalid index value {index}')
+
       if index >= VM2ASM.SEGMENT_SIZE_TABLE[segment]:
         raise ValueError(f'{index} out of range for segment {segment}')
+
+    return segment, index
 
   @property
   def _label_in_namespace(self):
@@ -558,8 +570,7 @@ class PUSH_Operation(Operation):
   """
   def resolve(self, known_symbols=None):
     segment, index = self.args
-    Operation.validate_segment_index(segment, index)
-    index = int(index)
+    segment, index = Operation.validate_segment_index(segment, index, known_symbols)
 
     def push_content_of_ptr(ptr_addr, offset):
       if offset == 0:
@@ -666,8 +677,7 @@ class POP_Operation(Operation):
   """
   def resolve(self, known_symbols=None):
     segment, index = self.args
-    Operation.validate_segment_index(segment, index)
-    index = int(index)
+    segment, index = Operation.validate_segment_index(segment, index, known_symbols)
 
     def pop_into_ptr(ptr_addr, offset):
       if offset == 0:
@@ -889,7 +899,7 @@ def test_neg():
   asm = NEG_Operation().resolve()
   Assembler().assemble(str(asm))
 
-def test_neg():
+def test_not():
   asm = NOT_Operation().resolve()
   Assembler().assemble(str(asm))
 
@@ -1069,6 +1079,11 @@ def test_ifgoto():
   Assembler().assemble(asm)
   print(asm)
 
+def test_push_defined_constant():
+  translator = VM2ASM(no_init=True)
+  asm = translator.translate('push constant $SCREEN').dumps()
+  Assembler().assemble(asm)
+  print(asm)
 
 if __name__ == '__main__':
   main()
