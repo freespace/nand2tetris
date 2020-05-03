@@ -556,17 +556,10 @@ class PUSH_Operation(Operation):
             $inc_sp
             ''')
 
-    if segment in VM2ASM.SEGMENT_BASE_ADDR_TABLE:
-      ptr_addr = VM2ASM.SEGMENT_BASE_ADDR_TABLE[segment]
-      return push_content_of_ptr(ptr_addr, index)
-
-    elif segment == 'temp':
-      # b/c temp is fixed we can calculate the pointer address
-      # directly
-      ptr_addr = VM2ASM.TEMP_BASE_ADDRESS + index
+    def push_content_of_memory(mem_addr):
       return ASM(f'''
-          // load the pointer value
-          @{ptr_addr}
+          // load memory address
+          @{mem_addr}
 
           // save the value into D
           D=M
@@ -579,11 +572,22 @@ class PUSH_Operation(Operation):
           $inc_sp
           ''')
 
+
+    if segment in VM2ASM.SEGMENT_BASE_ADDR_TABLE:
+      ptr_addr = VM2ASM.SEGMENT_BASE_ADDR_TABLE[segment]
+      return push_content_of_ptr(ptr_addr, index)
+
+    elif segment == 'temp':
+      # b/c temp is fixed we can calculate the pointer address
+      # directly
+      mem_addr = VM2ASM.TEMP_BASE_ADDRESS + index
+      return push_content_of_memory(mem_addr)
+
     elif segment == 'pointer':
       # set the addr of this (0) or that (1)
       ptr_name = ['this', 'that'][index]
-      ptr_addr = VM2ASM.SEGMENT_BASE_ADDR_TABLE[ptr_name]
-      return push_content_of_ptr(ptr_addr, 0)
+      mem_addr = VM2ASM.SEGMENT_BASE_ADDR_TABLE[ptr_name]
+      return push_content_of_memory(mem_addr)
 
     elif segment == 'constant':
       return ASM(f'''
@@ -700,14 +704,7 @@ class POP_Operation(Operation):
               $dec_sp
               ''')
 
-    if segment in VM2ASM.SEGMENT_BASE_ADDR_TABLE:
-      ptr_addr = VM2ASM.SEGMENT_BASE_ADDR_TABLE[segment]
-      return pop_into_ptr(ptr_addr, index)
-
-    elif segment == 'temp':
-      # b/c temp is fixed we can calculate the pointer address
-      # directly
-      ptr_addr = VM2ASM.TEMP_BASE_ADDRESS + index
+    def pop_into_memory(mem_addr):
       return ASM(f'''
           $load_sp
           A=A-1
@@ -715,8 +712,8 @@ class POP_Operation(Operation):
           // load top-of-stack value into D
           D=M
 
-          // load the pointer value
-          @{ptr_addr}
+          // load the memory address
+          @{mem_addr}
 
           // write D into destination
           M=D
@@ -724,11 +721,21 @@ class POP_Operation(Operation):
           $dec_sp
           ''')
 
+    if segment in VM2ASM.SEGMENT_BASE_ADDR_TABLE:
+      ptr_addr = VM2ASM.SEGMENT_BASE_ADDR_TABLE[segment]
+      return pop_into_ptr(ptr_addr, index)
+
+    elif segment == 'temp':
+      # b/c temp is fixed we can calculate the pointer address
+      # directly
+      mem_addr = VM2ASM.TEMP_BASE_ADDRESS + index
+      return pop_into_memory(mem_addr)
+
     elif segment == 'pointer':
       # set the addr of this (0) or that (1)
       ptr_name = ['this', 'that'][index]
-      ptr_addr = VM2ASM.SEGMENT_BASE_ADDR_TABLE[ptr_name]
-      return pop_into_ptr(ptr_addr, 0)
+      mem_addr = VM2ASM.SEGMENT_BASE_ADDR_TABLE[ptr_name]
+      return pop_into_memory(mem_addr)
 
     else:
       raise NameError(f'Unknown segment {segment}')
