@@ -144,9 +144,12 @@ class Assembler:
 
       machine_code = inst.resolve(self.known_symbols, compat=self._compat)
 
+      compact_machine_code = machine_code.replace('_', '')
+      assert len(compact_machine_code) == 16
+
       # if pretty print is not set or in compat mode do not emit _ spacers
       if self._compat or not self._pretty_print:
-        machine_code = machine_code.replace('_', '')
+        machine_code = compact_machine_code
 
       if not self._compat:
         if self._annotate:
