@@ -74,6 +74,7 @@ backward compatibility!
 
 Assembler
 ---------
+### Numeric Constants
 Our implementation of the assembler (`tools/assembler.py`) accepts hex and binary constants in the
 form of:
 
@@ -90,6 +91,11 @@ the assembler to error when it encounters use of the `W` register.
 The assembler can optionally annotate the machine code output with
 the corresponding source block _and_ the `PC` value if the `-A` option is given. This is useful
 during debugging.
+
+### T0-T3 Registers
+Some of the R0-R15 registers serve dual purpose and only R13-15 is actually
+available for general use. To avoid having to remember which registers can be
+used freely R13-15 can also be addressed as T0-T3.
 
 VM Translator
 -------------
