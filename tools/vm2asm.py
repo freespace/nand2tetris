@@ -114,6 +114,11 @@ class VM2ASM:
           val = int(val)
           set_ram(addr, val)
 
+      # set all temp variables to 0
+      set_ram('T0', 0)
+      set_ram('T1', 0)
+      set_ram('T2', 0)
+
       if annotate:
         self.asm_output.append(f'// INIT END')
 
@@ -989,7 +994,7 @@ def test_segment_index_validation():
   try:
     translator = VM2ASM(None, annotate=True)
     translator.translate('push temp 10')
-    assert 'Should have failed'
+    assert False, 'Should have failed'
   except ValueError:
     pass
 
