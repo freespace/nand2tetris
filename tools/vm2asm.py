@@ -65,7 +65,7 @@ class VM2ASM:
   }
 
   PREDEFINED_CONSTANTS = {
-      '$SCREEN': 'SCREEN',
+      '$SCREEN': Assembler.PREDEFINED_LABELS['SCREEN'],
   }
 
   def __init__(self,
@@ -266,12 +266,12 @@ class Operation:
     except KeyError:
       raise NameError(f'Unknown constant {index}')
 
-    if segment in VM2ASM.SEGMENT_SIZE_TABLE:
-      try:
-        index = int(index)
-      except ValueError:
-        raise ValueError(f'Invalid index value {index}')
+    try:
+      index = int(index)
+    except ValueError:
+      raise ValueError(f'Invalid index value {index}')
 
+    if segment in VM2ASM.SEGMENT_SIZE_TABLE:
       if index >= VM2ASM.SEGMENT_SIZE_TABLE[segment]:
         raise ValueError(f'{index} out of range for segment {segment}')
 
@@ -960,5 +960,20 @@ def test_push_defined_constant():
   Assembler().assemble(asm)
   print(asm)
 
+def test_pop_optimisation():
+  translator = VM2ASM(no_init=True)
+  asm1 = translator.translate('pop this 0').dumps()
+  translator = VM2ASM(no_init=True)
+  asm2 = translator.translate('pop this 1').dumps()
+
+  assert len(asm1) < len(asm2)
+
+def test_push_optimisation():
+  translator = VM2ASM(no_init=True)
+  asm1 = translator.translate('push this 0').dumps()
+  translator = VM2ASM(no_init=True)
+  asm2 = translator.translate('push this 1').dumps()
+
+  assert len(asm1) < len(asm2)
 if __name__ == '__main__':
   main()
