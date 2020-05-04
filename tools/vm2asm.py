@@ -657,7 +657,7 @@ class PUSH_Operation(Operation):
 
     elif segment == 'constant':
       return ASM(f'''
-          // load the constant into D
+          // load {index} into D
           @{index}
           D=A
 
