@@ -1,8 +1,15 @@
 #!/usr/bin/env python3
 
+"""
+N.B. when adding new instructions avoid direct manipulation of @SP. Use the sp macros, e.g.
+$load_sp, etc. This allows us to easily emit optimised assembly when running on the HACKx
+platform which uses the W register for SP
+"""
+
 import click
 
 from assembler import Assembler
+from asm import ASM
 
 @click.command()
 @click.option('-i', '--input-vm', type=click.Path(dir_okay=False, exists=True),
@@ -35,6 +42,9 @@ def main(*args, **kwargs):
   translator.write_asm()
 
 class VM2ASM:
+  """
+  In non-compat mode we dedicate the W register to storing SP
+  """
   STATIC_BASE_ADDRESS = 16
   STACK_BASE_ADDRESS = 256
   HEAP_BASE_ADDRESS = 16483
@@ -75,6 +85,8 @@ class VM2ASM:
     self._annotate = annotate
     self._known_symbols = dict(VM2ASM.PREDEFINED_CONSTANTS)
 
+    ASM.set_compat(self._compat)
+
     self.asm_output = []
     if annotate:
       self.asm_output.append(f'// SOURCE FILE={input_vm}')
@@ -91,7 +103,16 @@ class VM2ASM:
         self.asm_output += asm.to_list(indent=4)
 
       self.asm_output.append(f'// INIT BEGIN')
+
       set_ram('SP', VM2ASM.STACK_BASE_ADDRESS)
+
+      if not self._compat:
+        asm = ASM('''
+            // setup the W register as SP replacement
+            @{VM2ASM.STACK_BASE_ADDRESS}
+            W=A
+            ''')
+        self.asm_output += asm.to_list(indent=4)
 
       # if any of the runtime segment base address were given we set them. This is
       # needed to run the test programs supplied by the course
@@ -227,98 +248,10 @@ class VM2ASM:
 
     return op_cls(args, compat=self._compat, function_name=current_function_name)
 
-class ASM:
-  """
-  This class implements a superset of assembly instructions
-
-  In addition to normal assembly it has a basic macro system
-  where $XXX is treated as a macro and replaced with some pre-defined
-  sequence of assembly instructions.
-
-  e.g. $load_sp will load the value in the SP register into A so
-  we are accessing the top of the stack.
-
-  This system is abused to implement operation-specific labels. All
-  labels should be written as $_<label> and $_ will be replaced with
-  a unique number.
-  """
-  MACRO_LOAD_SP='''
-                // MACRO=LOAD_SP
-                @SP
-                A=M
-                // MACRO_END
-                '''
-
-  MACRO_SAVE_SP='''
-                // MACRO=SAVE_SP
-                // update SP, assumes new SP
-                // value is in A
-                D=A
-                @SP
-                M=D
-                // MACRO_END
-               '''
-
-  MACRO_DEC_SP='''
-               // MACRO=DEC_SP
-               @SP
-               M=M-1
-               // MACRO_END
-               '''
-
-  MACRO_INC_SP='''
-               // MACRO=INC_SP
-               @SP
-               M=M+1
-               // MACRO_END
-               '''
-
-  MACROS={'$load_sp': MACRO_LOAD_SP,
-          '$save_sp': MACRO_SAVE_SP,
-          '$dec_sp' : MACRO_DEC_SP,
-          '$inc_sp' : MACRO_INC_SP,
-          }
-
-  ID_CNT = 0
-
-  def __init__(self, asm_text):
-    self._text = asm_text
-
-  def replace(self, target, replacement):
-    self._text = self._text.replace(target, replacement)
-
-  def to_list(self, indent=0, comments=True):
-    # this ensures if the instruction is reused it still
-    # emits different IDs
-    self.MACROS['$_'] = f'__{ASM.ID_CNT}__'
-    ASM.ID_CNT += 1
-
-    txt = self._text
-
-    # insert macros
-    for macro_name, macro_asm in self.MACROS.items():
-      if macro_name in txt:
-        txt = txt.replace(macro_name, macro_asm)
-
-    if not comments:
-      parts = []
-      for l in txt.splitlines():
-        if l[:2] != '//':
-          parts.append(l)
-    else:
-      parts = txt.splitlines()
-
-    lprefix = ' '*indent
-    return [lprefix + l.strip() for l in parts if len(l.strip())]
-
-  def to_string(self, **kwargs):
-    return '\n'.join(self.to_list(**kwargs))
-
-  def __str__(self):
-    return self.to_string()
-
-
 class Operation:
+  """
+  See note at top of file re: adding new instructions.
+  """
   def __init__(self, args=None, compat=False, function_name=None):
     self.args = args
     self.compat = compat
@@ -451,81 +384,42 @@ class NOT_Operation(Operation):
 
 class Compare_Operation(Operation):
   def resolve(self, known_symbols=None):
-    if self.compat:
-      return ASM('''
-          $load_sp
+    return ASM('''
+        $load_sp
 
-          // pop y into D
-          A=A-1
-          D=M
+        // pop y into D
+        A=A-1
+        D=M
 
-          // pop x into M
-          A=A-1
+        // pop x into M
+        A=A-1
 
-          // sub
-          D=M-D
+        // sub
+        D=M-D
 
-          // write -1 (=0xFFFF) into M assuming
-          // are EQ
-          M=-1
+        // write -1 (=0xFFFF) into M assuming
+        // are EQ
+        M=-1
 
-          // update stack pointer to point to top
-          // of stack
-          $dec_sp
+        // update stack pointer to point to top
+        // of stack
+        $dec_sp
 
-          @$_END
-          D;%JMP%
+        @$_END
+        D;%JMP%
 
-          // if we didn't jump then the comparison
-          // fail and we write 0 into the top
-          // of the stack
+        // if we didn't jump then the comparison
+        // fail and we write 0 into the top
+        // of the stack
 
-          @SP
-          A=M
-          A=A-1
+        $load_sp
+        A=A-1
 
-          // write 0
-          M=0
+        // write 0
+        M=0
 
-          ($_END)
-          ''')
-    else:
-      return ASM('''
-          $load_sp
-
-          // pop y into D
-          A=A-1
-          D=M
-
-          // pop x into M
-          A=A-1
-
-          // sub
-          W=M-D
-
-          // write -1 (=0xFFFF) into M assuming
-          // are EQ
-          M=-1
-
-          // cache A, skip writing 0s if EQ
-          D=A
-          @$_END
-          W;%JMP%
-
-          // if we didn't jump then the comparison
-          // fail and we write 0 into the top
-          // of the stack
-
-          // restore A
-          A=D
-
-          // write 0
-          M=0
-
-          ($_END)
-
-          $dec_sp
-          ''')
+        ($_END)
+        ''')
 
 class EQ_Operation(Compare_Operation):
   def resolve(self, known_symbols=None):
@@ -705,64 +599,39 @@ class POP_Operation(Operation):
             $dec_sp
             ''')
       else:
-        if self.compat:
-          return ASM(f'''
-              // load the pointer value into D
-              @{ptr_addr}
-              D=M
+        return ASM(f'''
+            // load the pointer value into D
+            @{ptr_addr}
+            D=M
 
-              // load the offset into A
-              @{offset}
+            // load the offset into A
+            @{offset}
 
-              // calculate the new pointer value
-              // and save into D
-              D=A+D
+            // calculate the new pointer value
+            // and save into D
+            D=A+D
 
-              // save the value into T0
-              @T0
-              M=D
+            // save the value into T0
+            @T0
+            M=D
 
-              $load_sp
-              A=A-1
+            $load_sp
+            A=A-1
 
-              // load top-of-stack value into D
-              D=M
+            // load top-of-stack value into D
+            D=M
 
-              // load pointer value
-              @T0
+            // load pointer value
+            @T0
 
-              // dereference the pointer
-              A=M
+            // dereference the pointer
+            A=M
 
-              // write D into destination
-              M=D
+            // write D into destination
+            M=D
 
-              $dec_sp
-              ''')
-        else:
-          return ASM(f'''
-              $load_sp
-              A=A-1
-
-              // load top-of-stack value into W
-              W=M
-
-              // load the pointer value into D
-              @{ptr_addr}
-              D=M
-
-              // load the offset into A
-              @{offset}
-
-              // calculate the new pointer value
-              // and dereference
-              A=A+D
-
-              // write W into destination
-              M=W
-
-              $dec_sp
-              ''')
+            $dec_sp
+            ''')
 
     # this is like pop_into_ptr but without the dereferencing step
     # for those segments with fixed base address.
@@ -860,7 +729,6 @@ class FUNCTION_Operation(Operation):
 #################
 # HERE BE TESTS #
 # ###############
-
 
 def test_add():
   asm = ADD_Operation().resolve()
@@ -999,10 +867,12 @@ def test_segment_index_validation():
     pass
 
 def test_compat():
+  ASM.set_compat(True)
   asm = EQ_Operation(compat=True).resolve()
   Assembler(compat=True).assemble(str(asm))
 
   try:
+    ASM.set_compat(False)
     asm = EQ_Operation().resolve()
     Assembler(compat=True).assemble(str(asm))
   except:
