@@ -73,6 +73,7 @@ class ASM:
         }
 
   def __init__(self, asm_text):
+    assert len(ASM.MACROS) != 0, 'Must call ASM.set_compat() first'
     self._text = asm_text
 
   def replace(self, target, replacement):
@@ -81,13 +82,14 @@ class ASM:
   def to_list(self, indent=0, comments=True):
     # this ensures if the instruction is reused it still
     # emits different IDs
-    self.MACROS['$_'] = f'__{ASM.ID_CNT}__'
+    macros = dict(ASM.MACROS)
+    macros['$_'] = f'__{ASM.ID_CNT}__'
     ASM.ID_CNT += 1
 
     txt = self._text
 
     # insert macros
-    for macro_name, macro_asm in self.MACROS.items():
+    for macro_name, macro_asm in macros.items():
       if macro_name in txt:
         txt = txt.replace(macro_name, macro_asm)
 
