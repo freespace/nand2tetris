@@ -97,6 +97,13 @@ Some of the R0-R15 registers serve dual purpose and only R13-15 is actually
 available for general use. To avoid having to remember which registers can be
 used freely R13-15 can also be addressed as T0-T3.
 
+### Optimisations
+When `-O` is specified the assembler will perform some simple optimisations.
+
+- redundant loads where two (or more) A-instructions loading the same
+value will be reduced to one iff the A register is not modified
+- consecutive NOP (0) instructions will be collapsed into one
+
 VM Translator
 -------------
 Our implementation of the vm-to-asm translator (`tools/vm2asm.py`) is capable of
@@ -106,6 +113,11 @@ when invoking `vm2asm.py`. It is not necessary to also specify `-C` to the
 assembler b/c `vm2asm.py` will not use the `W` register.
 
 Like the assembler `vm2asm.py` will produce annotated assembly if `-A` is given.
+
+### Optimisations
+When targetting the HACKx platform the VM translator will use the W register as
+a dedicated stack pointer register. This significantly reduces the number of 
+memory access commands.
 
 Chapters and Projects
 =====================
