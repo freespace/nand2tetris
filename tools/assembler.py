@@ -331,7 +331,11 @@ class Instruction:
       # our ISR can only accept 15 bit constants
       if ret and ret > 2**15-1:
         sys.stderr.write(f'WARNING: literal value {token} truncated to 15 bits\n')
-        ret = ret & 0x7fff
+
+      # do this to enforce no more than 15 bits and to make it unsigned
+      # so bin(ret) won't return something like -10101
+      ret = ret & 0x7FFF
+
       return ret
     except ValueError:
       raise SyntaxError(f'Failed to parse numeric constant {token}')
