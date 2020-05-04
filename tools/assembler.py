@@ -477,6 +477,9 @@ class C_Instruction(Instruction):
     # remove all white space
     comp = comp.replace(' ', '')
 
+    if a and w:
+      raise SyntaxError('Cannot use W and M in computation at the same time')
+
     if a:
       # replace M with A in comp for lookup purposes
       comp = comp.replace('M', 'A')
