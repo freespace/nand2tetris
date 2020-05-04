@@ -19,6 +19,8 @@ import click
 @click.option('-A', '--annotate', is_flag=True,
               help=f'If given hack output will be annotated with source '
                    f'lines or PC counts')
+@click.option('-O', '--optimise', is_flag=True,
+              help='If given we will attempt to optimise to reduce number of instructions')
 def main(*args, **kwargs):
   assembler = Assembler(*args, **kwargs)
   assembler.assemble()
@@ -65,12 +67,20 @@ class Assembler:
   # start of variables address space
   VARIABLES_START_ADDRESS = 16
 
-  def __init__(self, input_asm=None, output_hack=None, compat=False, pretty_print=False, annotate=False):
+  def __init__(self,
+               input_asm=None,
+               output_hack=None,
+               compat=False,
+               pretty_print=False,
+               annotate=False,
+               optimise=False):
     self._input_asm = input_asm
     self._output_hack = output_hack
     self._compat = compat
     self._annotate = annotate
     self._pretty_print = pretty_print
+    self._do_optimisation = optimise
+    self._next_variable_address = Assembler.VARIABLES_START_ADDRESS
 
     self.known_symbols = dict(Assembler.PREDEFINED_LABELS)
     self.hack_output = []
@@ -122,7 +132,7 @@ class Assembler:
       if exp[0] == '(':
         # we do not reset source_line here b/c we want to keep
         # labels in the source block
-        self._parse_label(exp, len(instructions))
+        instructions += self._parse_label(exp, source_block)
       else:
         if exp[0] == '@':
           instructions += self._parse_A_inst(exp, source_block)
@@ -131,17 +141,19 @@ class Assembler:
 
         source_block = []
 
-    # second pass to resolve labels and emit machine code. At this point we would
-    # have grabbed all labels for jumps so any unresolved symbols are variables
-    # which needs to be assigned a RAM address
-    variable_addr = self.VARIABLES_START_ADDRESS
-    for pc, inst in enumerate(instructions):
-      symbols = inst.symbols()
-      for sym in symbols:
-        if not sym in self.known_symbols:
-          self.known_symbols[sym] = variable_addr
-          variable_addr += 1
+    self._resolve_symbols(instructions)
 
+    if self._do_optimisation:
+      instructions = self._optimise(instructions)
+
+    # do another resolve symbol pass to update label addresses
+    self._resolve_symbols(instructions)
+
+    # remove Label_Instruction since they don't emit machine code
+    instructions = [inst for inst in instructions if type(inst) != Label_Instruction]
+
+    # final pass to emit machine code
+    for pc, inst in enumerate(instructions):
       machine_code = inst.resolve(self.known_symbols, compat=self._compat)
 
       compact_machine_code = machine_code.replace('_', '')
@@ -160,7 +172,7 @@ class Assembler:
 
           machine_code += f' // PC={pc}'
 
-      self.hack_output.append(machine_code)
+        self.hack_output.append(machine_code)
 
     # allow chaining, e.g. self.assemble().dumps()
     return self
@@ -168,20 +180,8 @@ class Assembler:
   def _parse_A_inst(self, l, source_block):
     return [A_Instruction(l, source_block=source_block)];
 
-  def _parse_label(self, l, start_addr):
-    # the name of the label is inside the bracket
-    label = l[1:-1]
-    # make sure the label doesn't already exist
-    if label in self.known_symbols:
-      raise Exception(f'Redefinition of {label}')
-
-    # associate the label with the start_addr. We don't use start_addr + 1 b/c
-    # the addr is 0-indexed and start_addr is simply the count of number of
-    # instructions so far.
-    self.known_symbols[label] = start_addr
-
-    # return empty list b/c there is not associated instruction
-    return []
+  def _parse_label(self, l, source_block):
+    return [Label_Instruction(l, source_block=source_block)]
 
   def _parse_C_inst(self, l, source_block):
     inst = C_Instruction(l, source_block=source_block)
@@ -200,6 +200,75 @@ class Assembler:
         ret.append(NOP_Instruction())
 
     return ret
+
+  def _resolve_symbols(self, instructions):
+    # find all labels and update
+    # keep track of labels we have seen this pass to avoid
+    # redefinition
+    seen_labels = set()
+    pc = 0
+    for inst in instructions:
+      if type(inst) == Label_Instruction:
+        symbol = inst.symbols()[0]
+        if symbol in seen_labels:
+          raise NameError(f'Redefinition of label {symbol}')
+        self.known_symbols[symbol] = pc
+        seen_labels.add(symbol)
+      else:
+        pc += 1
+
+    # find all variables and assign RAM location if not
+    # already known
+    for inst in instructions:
+      if type(inst) == A_Instruction:
+        for s in inst.symbols():
+          if not s in self.known_symbols:
+            self.known_symbols[s] = self._next_variable_address
+            self._next_variable_address += 1
+
+  def _optimise(self, instructions):
+    instructions = self._remove_redundant_loads(instructions)
+    instructions = self._remove_consecutive_nops(instructions)
+
+    return instructions
+
+  def _remove_consecutive_nops(self, instructions):
+    new_instructions = []
+    last_C_inst = None
+    for inst in instructions:
+      emit = True
+      if type(inst) == C_Instruction:
+        if last_C_inst:
+          if last_C_inst.expression == '0' and inst.expression == '0':
+            emit = False
+
+        last_C_inst = inst
+
+      if emit:
+        new_instructions.append(inst)
+
+    return new_instructions
+
+  def _remove_redundant_loads(self, instructions):
+    new_instructions = []
+    last_a_inst = None
+    for inst in instructions:
+      emit = True
+      if type(inst) == A_Instruction:
+        if last_a_inst:
+          if last_a_inst.resolve(self.known_symbols) == inst.resolve(self.known_symbols):
+            emit = False
+        last_a_inst = inst
+
+      # modifying A should force the next A-instruction to emit
+      if type(inst) == C_Instruction:
+        if 'A' in inst.dest:
+          last_a_inst = None
+
+      if emit:
+        new_instructions.append(inst)
+
+    return new_instructions
 
 class Instruction:
   def __init__(self, expression, generated=False, source_block=None):
@@ -267,7 +336,6 @@ class Instruction:
     except ValueError:
       raise SyntaxError(f'Failed to parse numeric constant {token}')
 
-
   def symbols(self):
     """
     Returns list of symbols used in this instruction
@@ -297,6 +365,13 @@ class Instruction:
     will fail.
     """
     raise NotImplementedError()
+
+class Label_Instruction(Instruction):
+  def symbols(self):
+    return [self.expression[1:-1]]
+
+  def resolve(self, known_symbols, compat=False):
+    return []
 
 class A_Instruction(Instruction):
   def symbols(self):
@@ -467,3 +542,70 @@ def test_const_overflow():
 
   asm = Assembler().assemble('@0xFFFF').dumps()
   assert asm == '0111111111111111'
+
+def test_optimise_01():
+  src = '''
+      @SP
+      M=M+1
+      @SP
+      M=M+1
+  '''
+  mcode = Assembler().assemble(src).dumps()
+  no_opt_lines = mcode.splitlines()
+
+  mcode_opt = Assembler(optimise=True).assemble(src).dumps()
+  opt_lines = mcode_opt.splitlines()
+
+  assert len(opt_lines) < len(no_opt_lines)
+
+def test_optimise_02():
+  src = '''
+      @0
+      D=M
+      @SP
+      M=M+1
+      @SP
+      M=M+1
+  '''
+  mcode = Assembler().assemble(src).dumps()
+  no_opt_lines = mcode.splitlines()
+
+  mcode_opt = Assembler(optimise=True).assemble(src).dumps()
+  opt_lines = mcode_opt.splitlines()
+
+  assert len(opt_lines) < len(no_opt_lines)
+
+def test_optimise_03():
+  # b/c of modification to A in A=D+1 we cannot
+  # optimise away the last @SP
+  src = '''
+      @0
+      D=M
+      A=D+1
+      @SP
+  '''
+  mcode = Assembler().assemble(src).dumps()
+  no_opt_lines = mcode.splitlines()
+
+  mcode_opt = Assembler(optimise=True).assemble(src).dumps()
+  opt_lines = mcode_opt.splitlines()
+
+  assert len(opt_lines) == len(no_opt_lines)
+
+def test_optimise_04():
+  src = '''
+      @0
+      M=M+1
+      M=M+1
+  '''
+  mcode = Assembler().assemble(src).dumps()
+  no_opt_lines = mcode.splitlines()
+
+  mcode_opt = Assembler(optimise=True).assemble(src).dumps()
+  opt_lines = mcode_opt.splitlines()
+
+  assert len(opt_lines) == len(no_opt_lines)
+  print('')
+  print(mcode)
+  print('')
+  print(mcode_opt)
