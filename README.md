@@ -62,7 +62,7 @@ Where
 
   - `/w a` forms a 2-bit vector that selects the `x` input of the ALU from `A`,
     `inM` or `W` corresponding to `00`, `01`, `10`. `11` is undefined.
-  - `d4` works like `d1..d3` but inverted. Wwhen it is UNSET the `W` register takes on the
+  - `d4` works like `d1..d3` but inverted. When it is UNSET the `W` register takes on the
     ALU output on the next clock.
 
 The interpretation of `w` and `d4` has been chosen so that programs intended for
@@ -101,7 +101,7 @@ used freely R13-15 can also be addressed as T0-T3.
 When `-O` is specified the assembler will perform some simple optimisations.
 
 - redundant loads where two (or more) A-instructions loading the same
-value will be reduced to one iff the A register is not modified
+value will be reduced to one iff the A register is not modified in between
 - consecutive NOP (0) instructions will be collapsed into one
 
 VM Translator
