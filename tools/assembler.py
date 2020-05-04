@@ -256,7 +256,11 @@ class Assembler:
       emit = True
       if type(inst) == A_Instruction:
         if last_a_inst:
-          if last_a_inst.resolve(self.known_symbols) == inst.resolve(self.known_symbols):
+          # compare based on expression not on resulting machine code b/c
+          # it is possible for one load to refer to a label and another to
+          # a RAM variable and they *happen* to have the same value. If we
+          # remove one and the label address changes then we will a bug
+          if last_a_inst.expression == inst.expression:
             emit = False
         last_a_inst = inst
 
@@ -279,7 +283,7 @@ class Instruction:
                          and this one, inclusive of the instruction itself.
                          This includes comments and jump labels.
     """
-    self.expression = expression
+    self.expression = expression.replace(' ','')
     self.generated = generated
     self.source_block = source_block
 
