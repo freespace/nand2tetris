@@ -5,7 +5,7 @@ label LOOP_RESET
   pop temp 0
 
   // toggle the value to write
-  push constant 0
+  push temp 1
   not
   pop temp 1
 
