@@ -304,7 +304,8 @@ class Assembler:
           if type(inst) == C_Instruction:
             last_inst.emit = 'M' in inst.dest or 'M' in inst.comp
 
-      last_inst = inst
+      if type(inst) != Label_Instruction:
+        last_inst = inst
 
   def _remove_consecutive_nops(self, instructions):
     last_inst = None
@@ -313,7 +314,8 @@ class Assembler:
         if last_inst and last_inst.generated and last_inst.expression == '0':
           inst.emit = False
 
-      last_inst = inst
+      if type(inst) != Label_Instruction:
+        last_inst = inst
 
   def _remove_redundant_loads(self, instructions):
     last_a_inst = None
@@ -692,6 +694,23 @@ def test_optimise_consecutive_nops_01():
 
   assert len(opt_lines) < len(no_opt_lines)
 
+def test_optimise_consecutive_nops_02():
+  # there should only be one nop between the M instructions
+  # even thugh a label is present
+  src = '''
+      @0
+      M=M+1
+      (LABEL)
+      M=M+1
+  '''
+  mcode = Assembler().assemble(src).dumps()
+  no_opt_lines = mcode.splitlines()
+
+  mcode_opt = Assembler(optimise=OPT_CONSEC_NOPS).assemble(src).dumps()
+  opt_lines = mcode_opt.splitlines()
+
+  assert len(opt_lines) < len(no_opt_lines)
+
 def test_w_m_syntax_error():
   try:
     Assembler().assemble('D=M+W')
@@ -709,6 +728,24 @@ def test_optmise_unneeded_nops_01():
       @0
       M=M+1
       M=M+1
+      @0
+  '''
+  mcode = Assembler().assemble(src).dumps()
+  no_opt_lines = mcode.splitlines()
+
+  mcode_opt = Assembler(optimise=OPT_UNNEEDED_NOPS).assemble(src).dumps()
+  opt_lines = mcode_opt.splitlines()
+
+  assert len(opt_lines) < len(no_opt_lines)
+
+def test_optmise_unneeded_nops_02():
+  # the last nop should be removed even
+  # though a label instruction is present
+  src = '''
+      @0
+      M=M+1
+      M=M+1
+      (LABEL)
       @0
   '''
   mcode = Assembler().assemble(src).dumps()

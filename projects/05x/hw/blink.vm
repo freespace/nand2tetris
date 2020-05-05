@@ -1,23 +1,18 @@
+label init
+  s_clear temp 1
+
 label LOOP_RESET
 
-  // setup counter into temp 0
-  push constant 0
+  // setup counter to 16384 + 255
+  push constant 16639
   pop temp 0
 
   // toggle the value to write
-  push temp 1
-  not
-  pop temp 1
+  s_not temp 1
 
 label LOOP_START
-
-  // calculate the addr to write
-  // to as SCREEN + temp0
-  push constant $SCREEN
+  // put the write destination into THIS
   push temp 0
-  add
-
-  // set THIS to the write addr
   pop pointer 0
 
   // put the value to write
@@ -27,18 +22,13 @@ label LOOP_START
   // do the write
   pop this 0
 
-  // increment temp0
-  push temp 0
-  push constant 1
-  add
-
-  // save temp0
-  pop temp 0
+  // decrement temp0
+  s_dec temp 0
 
   // decide if we need to reset
   push temp 0
-  push constant 255
-  lt
+  push constant $SCREEN
+  gt
 
   if-goto LOOP_START
   goto LOOP_RESET
