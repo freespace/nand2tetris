@@ -26,6 +26,8 @@ def main(*args, **kwargs):
   assembler.assemble()
   assembler.write_hack()
 
+def _stderr_warn(warning):
+  sys.stderr.write(f'[WARNING] {warning}\n')
 class Assembler:
   # labels map label names to memory addresses
   PREDEFINED_LABELS = dict(R0=0,
@@ -81,12 +83,21 @@ class Assembler:
     self._pretty_print = pretty_print
     self._do_optimisation = optimise
     self._next_variable_address = Assembler.VARIABLES_START_ADDRESS
+    self._warnings = []
 
     self.known_symbols = dict(Assembler.PREDEFINED_LABELS)
     self.hack_output = []
 
     if annotate:
       self.hack_output.append(f'// SOURCE FILE={input_asm}')
+
+  @property
+  def warnings(self):
+    return list(self._warnings)
+
+  def warn(self, warning):
+    self._warnings.append(warning)
+    _stderr_warn(warning)
 
   def dumps(self):
     """
@@ -154,6 +165,9 @@ class Assembler:
 
     # final pass to emit machine code
     for pc, inst in enumerate(instructions):
+      # gather warnings
+      self._warnings += inst.warnings
+
       machine_code = inst.resolve(self.known_symbols, compat=self._compat)
 
       compact_machine_code = machine_code.replace('_', '')
@@ -173,6 +187,11 @@ class Assembler:
           machine_code += f' // PC={pc}'
 
         self.hack_output.append(machine_code)
+
+    last_inst = instructions[-1]
+
+    if type(last_inst) != C_Instruction or last_inst.jump == 'XXX':
+      self.warn(f'Last instruction should be a jump instruction')
 
     # allow chaining, e.g. self.assemble().dumps()
     return self
@@ -286,6 +305,11 @@ class Instruction:
     self.expression = expression.replace(' ','')
     self.generated = generated
     self.source_block = source_block
+    self._warnings = []
+
+  @property
+  def warnings(self):
+    return list(self._warnings)
 
   def get_annotations(self):
     """
@@ -300,8 +324,11 @@ class Instruction:
       ret.append(self.expression)
       return ret
 
-  @staticmethod
-  def parse_numeric_constant(token):
+  def warn(self, warning):
+    self._warnings.append(warning)
+    _stderr_warn(warning)
+
+  def parse_numeric_constant(self, token):
     """
     Attempts to parse token as:
       - decimal (NNNNNN)
@@ -335,7 +362,7 @@ class Instruction:
       # our ISR can only accept 15 bit constants
       if ret:
         if ret > 2**15-1:
-          sys.stderr.write(f'WARNING: literal value {token} truncated to 15 bits\n')
+          self.warn(f'WARNING: literal value {token} truncated to 15 bits')
 
         # do this to enforce no more than 15 bits and to make it unsigned
         # so bin(ret) won't return something like -10101
@@ -392,7 +419,7 @@ class A_Instruction(Instruction):
 
   def resolve(self, known_symbols, compat=False):
     src = self.expression
-    val = Instruction.parse_numeric_constant(src[1:])
+    val = self.parse_numeric_constant(src[1:])
     if val is None:
       label = src[1:]
       if not label in known_symbols:
@@ -555,6 +582,8 @@ def test_const_overflow():
   asm = Assembler().assemble('@0xFFFF').dumps()
   assert asm == '0111111111111111'
 
+  assert len(Assembler().assemble('@0xFFFF').warnings) > 0
+
 def test_optimise_01():
   src = '''
       @SP
@@ -630,3 +659,5 @@ def test_w_m_syntax_error():
   else:
     assert False, 'Should have thrown SyntaxError exception'
 
+def test_last_inst_is_not_jump():
+  assert len(Assembler().assemble('@1234').warnings) > 0
