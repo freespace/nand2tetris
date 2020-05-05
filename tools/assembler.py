@@ -3,6 +3,15 @@
 import sys
 import click
 
+OPT_LOADS = 'loads'
+OPT_CONSEC_NOPS = 'consec_nops'
+OPT_UNNEEDED_NOPS = 'unneeded_nops'
+OPT_ALL = 'all'
+OPT_CHOICES=(OPT_ALL,
+             OPT_LOADS,
+             OPT_CONSEC_NOPS,
+             OPT_UNNEEDED_NOPS)
+
 @click.command()
 @click.option('-i', '--input-asm', type=click.Path(dir_okay=False, exists=True),
               required=False,
@@ -19,8 +28,8 @@ import click
 @click.option('-A', '--annotate', is_flag=True,
               help=f'If given hack output will be annotated with source '
                    f'lines or PC counts')
-@click.option('-O', '--optimise', is_flag=True,
-              help='If given we will attempt to optimise to reduce number of instructions')
+@click.option('-O', '--optimise', type=click.Choice(OPT_CHOICES), default=None,
+              help='If given enables the specified optimisation. Defaults to "all".')
 @click.option('--count', 'print_count', is_flag=True,
               help=f'If given the number of instructions, minus annotation '
                    f'is printed to stderr')
@@ -78,14 +87,14 @@ class Assembler:
                compat=False,
                pretty_print=False,
                annotate=False,
-               optimise=False,
+               optimise=None,
                print_count=False):
     self._input_asm = input_asm
     self._output_hack = output_hack
     self._compat = compat
     self._annotate = annotate
     self._pretty_print = pretty_print
-    self._do_optimisation = optimise
+    self._optimise_options = optimise
     self._next_variable_address = Assembler.VARIABLES_START_ADDRESS
     self._print_count = print_count
 
@@ -160,38 +169,46 @@ class Assembler:
 
     self._resolve_symbols(instructions)
 
-    if self._do_optimisation:
-      instructions = self._optimise(instructions)
+    instructions = self._optimise(instructions)
 
     # do another resolve symbol pass to update label addresses
     self._resolve_symbols(instructions)
 
-    # remove Label_Instruction since they don't emit machine code
-    instructions = [inst for inst in instructions if type(inst) != Label_Instruction]
-
     # final pass to emit machine code
-    for pc, inst in enumerate(instructions):
+    pc = 0
+    for inst in instructions:
       # gather warnings
       self._warnings += inst.warnings
 
       machine_code = inst.resolve(self.known_symbols, compat=self._compat)
 
-      compact_machine_code = machine_code.replace('_', '')
-      assert len(compact_machine_code) == 16
+      if machine_code is not None:
+        compact_machine_code = machine_code.replace('_', '')
+        assert len(compact_machine_code) == 16
 
-      # if pretty print is not set or in compat mode do not emit _ spacers
-      if self._compat or not self._pretty_print:
-        machine_code = compact_machine_code
+        # if pretty print is not set or in compat mode do not emit _ spacers
+        if self._compat or not self._pretty_print:
+          machine_code = compact_machine_code
 
-      if not self._compat:
-        if self._annotate:
+        should_annotate = not self._compat and self._annotate
+
+        if not inst.emit:
+          if should_annotate:
+            machine_code = f'// [OPTIMISER REMOVED] {machine_code}'
+          else:
+            machine_code = None
+        else:
+          pc += 1
+          if should_annotate:
+            machine_code += f' // PC={pc}'
+
+        if should_annotate:
           self.hack_output.append('')
           # annotate each hack instruction with the source line
           for l in inst.get_annotations():
             self.hack_output.append(f'// {l}')
 
-          machine_code += f' // PC={pc}'
-
+      if machine_code:
         self.hack_output.append(machine_code)
 
     if len(instructions) == 0:
@@ -203,7 +220,7 @@ class Assembler:
         self.warn(f'Last instruction should be a jump instruction')
 
     if self._print_count:
-      sys.stderr.write(f'Assembled {len(instructions)} instructions\n')
+      sys.stderr.write(f'Assembled {pc} instructions\n')
 
     # allow chaining, e.g. self.assemble().dumps()
     return self
@@ -238,7 +255,7 @@ class Assembler:
     # redefinition
     seen_labels = set()
     pc = 0
-    for inst in instructions:
+    for inst in (inst for inst in instructions if inst.emit):
       if type(inst) == Label_Instruction:
         symbol = inst.symbols()[0]
         if symbol in seen_labels:
@@ -258,33 +275,49 @@ class Assembler:
             self._next_variable_address += 1
 
   def _optimise(self, instructions):
-    instructions = self._remove_redundant_loads(instructions)
-    instructions = self._remove_consecutive_nops(instructions)
+    oopt = self._optimise_options
+    doall = oopt == OPT_ALL
+    if doall or oopt == OPT_LOADS:
+      self._remove_redundant_loads(instructions)
+
+    if doall or oopt == OPT_CONSEC_NOPS:
+      self._remove_consecutive_nops(instructions)
+
+    if doall or oopt == OPT_UNNEEDED_NOPS:
+      self._remove_unneeded_nops(instructions)
 
     return instructions
 
+  def _remove_unneeded_nops(self, instructions):
+    """
+    Removes nops inserted after M writes if the next instruction
+    is an A-instruction or a C-instruction that doesn't read or
+    write to memory
+    """
+    last_inst = None
+    for inst in (inst for inst in instructions if inst.emit):
+      if last_inst:
+        if last_inst.generated and last_inst.expression == '0':
+          if type(inst) == A_Instruction:
+            last_inst.emit = False
+
+          if type(inst) == C_Instruction:
+            last_inst.emit = 'M' in inst.dest or 'M' in inst.comp
+
+      last_inst = inst
+
   def _remove_consecutive_nops(self, instructions):
-    new_instructions = []
-    last_C_inst = None
-    for inst in instructions:
-      emit = True
-      if type(inst) == C_Instruction:
-        if last_C_inst:
-          if last_C_inst.expression == '0' and inst.expression == '0':
-            emit = False
+    last_inst = None
+    for inst in (inst for inst in instructions if inst.emit):
+      if inst.generated and inst.expression == '0':
+        if last_inst and last_inst.generated and last_inst.expression == '0':
+          inst.emit = False
 
-        last_C_inst = inst
-
-      if emit:
-        new_instructions.append(inst)
-
-    return new_instructions
+      last_inst = inst
 
   def _remove_redundant_loads(self, instructions):
-    new_instructions = []
     last_a_inst = None
-    for inst in instructions:
-      emit = True
+    for inst in (inst for inst in instructions if inst.emit):
       if type(inst) == A_Instruction:
         if last_a_inst:
           # compare based on expression not on resulting machine code b/c
@@ -292,18 +325,13 @@ class Assembler:
           # a RAM variable and they *happen* to have the same value. If we
           # remove one and the label address changes then we will a bug
           if last_a_inst.expression == inst.expression:
-            emit = False
+            inst.emit = False
         last_a_inst = inst
 
       # modifying A should force the next A-instruction to emit
       if type(inst) == C_Instruction:
         if 'A' in inst.dest:
           last_a_inst = None
-
-      if emit:
-        new_instructions.append(inst)
-
-    return new_instructions
 
 class Instruction:
   def __init__(self, expression, generated=False, source_block=None):
@@ -317,6 +345,8 @@ class Instruction:
     self.expression = expression.replace(' ','')
     self.generated = generated
     self.source_block = source_block
+    self.emit = True
+
     self._warnings = []
 
   @property
@@ -419,7 +449,7 @@ class Label_Instruction(Instruction):
     return [self.expression[1:-1]]
 
   def resolve(self, known_symbols, compat=False):
-    return []
+    return None
 
 class A_Instruction(Instruction):
   def symbols(self):
@@ -596,7 +626,8 @@ def test_const_overflow():
 
   assert len(Assembler().assemble('@0xFFFF').warnings) > 0
 
-def test_optimise_01():
+def test_optimise_load_01():
+  # the second @SP should be removed
   src = '''
       @SP
       M=M+1
@@ -606,12 +637,13 @@ def test_optimise_01():
   mcode = Assembler().assemble(src).dumps()
   no_opt_lines = mcode.splitlines()
 
-  mcode_opt = Assembler(optimise=True).assemble(src).dumps()
+  mcode_opt = Assembler(optimise=OPT_LOADS).assemble(src).dumps()
   opt_lines = mcode_opt.splitlines()
 
   assert len(opt_lines) < len(no_opt_lines)
 
-def test_optimise_02():
+def test_optimise_load_02():
+  # the second @SP should be removed
   src = '''
       @0
       D=M
@@ -623,12 +655,12 @@ def test_optimise_02():
   mcode = Assembler().assemble(src).dumps()
   no_opt_lines = mcode.splitlines()
 
-  mcode_opt = Assembler(optimise=True).assemble(src).dumps()
+  mcode_opt = Assembler(optimise=OPT_LOADS).assemble(src).dumps()
   opt_lines = mcode_opt.splitlines()
 
   assert len(opt_lines) < len(no_opt_lines)
 
-def test_optimise_03():
+def test_optimise_load_03():
   # b/c of modification to A in A=D+1 we cannot
   # optimise away the last @SP
   src = '''
@@ -640,12 +672,13 @@ def test_optimise_03():
   mcode = Assembler().assemble(src).dumps()
   no_opt_lines = mcode.splitlines()
 
-  mcode_opt = Assembler(optimise=True).assemble(src).dumps()
+  mcode_opt = Assembler(optimise=OPT_LOADS).assemble(src).dumps()
   opt_lines = mcode_opt.splitlines()
 
   assert len(opt_lines) == len(no_opt_lines)
 
-def test_optimise_04():
+def test_optimise_consecutive_nops_01():
+  # there should only be one nop between the M instructions
   src = '''
       @0
       M=M+1
@@ -654,14 +687,10 @@ def test_optimise_04():
   mcode = Assembler().assemble(src).dumps()
   no_opt_lines = mcode.splitlines()
 
-  mcode_opt = Assembler(optimise=True).assemble(src).dumps()
+  mcode_opt = Assembler(optimise=OPT_CONSEC_NOPS).assemble(src).dumps()
   opt_lines = mcode_opt.splitlines()
 
-  assert len(opt_lines) == len(no_opt_lines)
-  print('')
-  print(mcode)
-  print('')
-  print(mcode_opt)
+  assert len(opt_lines) < len(no_opt_lines)
 
 def test_w_m_syntax_error():
   try:
@@ -673,3 +702,18 @@ def test_w_m_syntax_error():
 
 def test_last_inst_is_not_jump():
   assert len(Assembler().assemble('@1234').warnings) > 0
+
+def test_optmise_unneeded_nops_01():
+  src = '''
+      @0
+      M=M+1
+      M=M+1
+      @0
+  '''
+  mcode = Assembler().assemble(src).dumps()
+  no_opt_lines = mcode.splitlines()
+
+  mcode_opt = Assembler(optimise=OPT_UNNEEDED_NOPS).assemble(src).dumps()
+  opt_lines = mcode_opt.splitlines()
+
+  assert len(opt_lines) < len(no_opt_lines)
