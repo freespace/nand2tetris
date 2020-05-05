@@ -98,11 +98,16 @@ available for general use. To avoid having to remember which registers can be
 used freely R13-15 can also be addressed as T0-T3.
 
 ### Optimisations
-When `-O` is specified the assembler will perform some simple optimisations.
+When `-O<opt>` is specified the assembler will perform some simple optimisations.
+`<opt>` can be one of:
 
-- redundant loads where two (or more) A-instructions loading the same
-value will be reduced to one iff the A register is not modified in between
-- consecutive NOP (0) instructions will be collapsed into one
+- `all`: perform all optimisations
+- `loads`: remove redundant loads where two (or more) A-instructions loading the same
+           value will be reduced to one iff the A register is not modified in between
+- `consec_nops`: consecutive NOP (0) instructions will be collapsed into one
+- `unneeded_nops`: unneeded NOP (0) instructions will be removed. A NOP is
+                   unneeded if the next instructions following memory write
+                   doesn't access memory.
 
 VM Translator
 -------------
@@ -114,9 +119,35 @@ assembler b/c `vm2asm.py` will not use the `W` register.
 
 Like the assembler `vm2asm.py` will produce annotated assembly if `-A` is given.
 
+### Direct Segment Manipulation
+Following the stack model religiously means incrementing a value looks like
+this:
+
+```
+push local 0
+push constant 1
+add
+pop local 0
+```
+
+This sequence ultimately results in no change in the stack pointer value (2 push
+and 2 pops) and since incrementing by 1 doesn't require another operand we could
+have manipulated the value using `M=M+1`. This is true for other 1-operand
+operations our ALU is capable of, e.g. `!`, `M-1` etc.
+
+The VM translator implemented here supports the following direct segment
+manipulation commands:
+
+- `s_inc <segment> <index>`: increments the segment value directly
+- `s_dec <segment> <index>`: decrements the segment value directly
+- `s_neg <segment> <index>`: negates (-x) the segment value directly
+- `s_not <segment> <index>`: binary not's (~x) the segment value directly
+- `s_set <segment> <index>`: sets all bits of the segment value directly
+- `s_clear <segment> <inex>`: clears all bits of the segment value directly
+
 ### Optimisations
 When targetting the HACKx platform the VM translator will use the W register as
-a dedicated stack pointer register. This significantly reduces the number of 
+a dedicated stack pointer register. This significantly reduces the number of
 memory access commands.
 
 Chapters and Projects
