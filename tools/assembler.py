@@ -704,6 +704,7 @@ def test_last_inst_is_not_jump():
   assert len(Assembler().assemble('@1234').warnings) > 0
 
 def test_optmise_unneeded_nops_01():
+  # the last nop should be removed
   src = '''
       @0
       M=M+1
