@@ -77,7 +77,15 @@ class ASM:
     self._text = asm_text
 
   def replace(self, target, replacement):
+    """
+    Note that unlike str.replace this modification is in place.
+
+    The ASM instance is returned to allow chaining.
+    """
     self._text = self._text.replace(target, replacement)
+
+    # allow some chaining
+    return self
 
   def to_list(self, indent=0, comments=True):
     # this ensures if the instruction is reused it still
