@@ -21,6 +21,9 @@ import click
                    f'lines or PC counts')
 @click.option('-O', '--optimise', is_flag=True,
               help='If given we will attempt to optimise to reduce number of instructions')
+@click.option('--count', 'print_count', is_flag=True,
+              help=f'If given the number of instructions, minus annotation '
+                   f'is printed to stderr')
 def main(*args, **kwargs):
   assembler = Assembler(*args, **kwargs)
   assembler.assemble()
@@ -75,7 +78,8 @@ class Assembler:
                compat=False,
                pretty_print=False,
                annotate=False,
-               optimise=False):
+               optimise=False,
+               print_count=False):
     self._input_asm = input_asm
     self._output_hack = output_hack
     self._compat = compat
@@ -83,10 +87,12 @@ class Assembler:
     self._pretty_print = pretty_print
     self._do_optimisation = optimise
     self._next_variable_address = Assembler.VARIABLES_START_ADDRESS
-    self._warnings = []
+    self._print_count = print_count
 
     self.known_symbols = dict(Assembler.PREDEFINED_LABELS)
     self.hack_output = []
+
+    self._warnings = []
 
     if annotate:
       self.hack_output.append(f'// SOURCE FILE={input_asm}')
@@ -188,10 +194,16 @@ class Assembler:
 
         self.hack_output.append(machine_code)
 
-    last_inst = instructions[-1]
+    if len(instructions) == 0:
+      self.warn('No instructions found in input')
+    else:
+      last_inst = instructions[-1]
 
-    if type(last_inst) != C_Instruction or last_inst.jump == 'XXX':
-      self.warn(f'Last instruction should be a jump instruction')
+      if type(last_inst) != C_Instruction or last_inst.jump == 'XXX':
+        self.warn(f'Last instruction should be a jump instruction')
+
+    if self._print_count:
+      sys.stderr.write(f'Assembled {len(instructions)} instructions\n')
 
     # allow chaining, e.g. self.assemble().dumps()
     return self
