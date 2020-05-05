@@ -223,11 +223,6 @@ class VM2ASM:
       'or' : OR_Operation,
       'not': NOT_Operation,
 
-      # extensions
-      'neq': NEQ_Operation,
-      'lte': LTE_Operation,
-      'gte': GTE_Operation,
-
       # memory management
       'push': PUSH_Operation,
       'pop' : POP_Operation,
@@ -239,6 +234,20 @@ class VM2ASM:
 
       # function calling
       'function': FUNCTION_Operation,
+
+      # EXTENSIONS
+      # extra equality checks
+      'neq': NEQ_Operation,
+      'lte': LTE_Operation,
+      'gte': GTE_Operation,
+
+      # direct segment manipulation
+      's_neg'  : S_NEG_Operation,
+      's_not'  : S_NOT_Operation,
+      's_dec'  : S_DEC_Operation,
+      's_inc'  : S_INC_Operation,
+      's_clear': S_CLEAR_Operation,
+      's_set'  : S_SET_Operation,
     }
 
     try:
@@ -671,6 +680,103 @@ class POP_Operation(Operation):
     else:
       raise NameError(f'Unknown segment {segment}')
 
+class S_Operation(Operation):
+  def resolve(self, known_symbols=None):
+    segment, index = self.args
+    segment, index = Operation.validate_segment_index(segment, index, known_symbols)
+
+    def operate_on_content_of_ptr(ptr_addr, offset):
+      if offset == 0:
+        return ASM(f'''
+            // load the pointer value
+            @{ptr_addr}
+
+            // dereference the pointer
+            A=M
+
+            // operate on content-of pointer
+            M=%COMP%
+            ''')
+      else:
+        return ASM(f'''
+            // load the pointer value into D
+            @{ptr_addr}
+            D=M
+
+            // load the offset into A
+            @{offset}
+
+            // calculate the new pointer value
+            // and save into D
+            A=A+D
+
+            // dereference the pointer
+            A=M
+
+            // operate on content-of pointer
+            M=%COMP%
+            ''')
+
+    # this is like operate_on_content_of_ptr but without the dereferencing step
+    # for those segments with fixed base address.
+    def operate_on_memory(mem_addr):
+      return ASM(f'''
+          // load the memory address
+          @{mem_addr}
+
+          // write D into destination
+          M=%COMP%
+          ''')
+
+    if segment in VM2ASM.SEGMENT_BASE_ADDR_TABLE:
+      ptr_addr = VM2ASM.SEGMENT_BASE_ADDR_TABLE[segment]
+      return operate_on_content_of_ptr(ptr_addr, index)
+
+    elif segment == 'temp':
+      # b/c temp is fixed we can calculate the pointer address
+      # directly
+      mem_addr = VM2ASM.TEMP_BASE_ADDRESS + index
+      return operate_on_memory(mem_addr)
+
+    elif segment == 'pointer':
+      # set the addr of this (0) or that (1)
+      ptr_name = ['this', 'that'][index]
+      mem_addr = VM2ASM.SEGMENT_BASE_ADDR_TABLE[ptr_name]
+      return operate_on_memory(mem_addr)
+
+    else:
+      raise NameError(f'Unknown segment {segment}')
+
+
+class S_NOT_Operation(S_Operation):
+  def resolve(self, *args, **kwargs):
+    return super().resolve(*args, **kwargs).replace('%COMP%', '!M')
+
+
+class S_NEG_Operation(S_Operation):
+  def resolve(self, *args, **kwargs):
+    return super().resolve(*args, **kwargs).replace('%COMP%', '-M')
+
+
+class S_INC_Operation(S_Operation):
+  def resolve(self, *args, **kwargs):
+    return super().resolve(*args, **kwargs).replace('%COMP%', 'M+1')
+
+
+class S_DEC_Operation(S_Operation):
+  def resolve(self, *args, **kwargs):
+    return super().resolve(*args, **kwargs).replace('%COMP%', 'M-1')
+
+
+class S_SET_Operation(S_Operation):
+  def resolve(self, *args, **kwargs):
+    return super().resolve(*args, **kwargs).replace('%COMP%', '-1')
+
+
+class S_CLEAR_Operation(S_Operation):
+  def resolve(self, *args, **kwargs):
+    return super().resolve(*args, **kwargs).replace('%COMP%', '0')
+
 
 class LABEL_Operation(Operation):
   def resolve(self, known_symbols=None):
@@ -975,5 +1081,48 @@ def test_push_optimisation():
   asm2 = translator.translate('push this 1').dumps()
 
   assert len(asm1) < len(asm2)
+
+def test_s_neg():
+  translator = VM2ASM(no_init=True)
+  asm = translator.translate('s_neg temp 0').dumps()
+  Assembler().assemble(asm)
+  asm = translator.translate('s_neg local 1').dumps()
+  Assembler().assemble(asm)
+
+def test_s_not():
+  translator = VM2ASM(no_init=True)
+  asm = translator.translate('s_not temp 0').dumps()
+  Assembler().assemble(asm)
+  asm = translator.translate('s_not local 1').dumps()
+  Assembler().assemble(asm)
+
+def test_s_inc():
+  translator = VM2ASM(no_init=True)
+  asm = translator.translate('s_inc temp 0').dumps()
+  Assembler().assemble(asm)
+  asm = translator.translate('s_inc local 1').dumps()
+  Assembler().assemble(asm)
+
+def test_s_dec():
+  translator = VM2ASM(no_init=True)
+  asm = translator.translate('s_dec temp 0').dumps()
+  Assembler().assemble(asm)
+  asm = translator.translate('s_dec local 1').dumps()
+  Assembler().assemble(asm)
+
+def test_s_set():
+  translator = VM2ASM(no_init=True)
+  asm = translator.translate('s_set temp 0').dumps()
+  Assembler().assemble(asm)
+  asm = translator.translate('s_set local 1').dumps()
+  Assembler().assemble(asm)
+
+def test_s_clear():
+  translator = VM2ASM(no_init=True)
+  asm = translator.translate('s_clear temp 0').dumps()
+  Assembler().assemble(asm)
+  asm = translator.translate('s_clear local 1').dumps()
+  Assembler().assemble(asm)
+
 if __name__ == '__main__':
   main()
