@@ -91,7 +91,7 @@ class ASM:
     # this ensures if the instruction is reused it still
     # emits different IDs
     macros = dict(ASM.MACROS)
-    macros['$_'] = f'__{ASM.ID_CNT}__'
+    macros['$_'] = f'LBL{ASM.ID_CNT}.'
     ASM.ID_CNT += 1
 
     txt = self._text
