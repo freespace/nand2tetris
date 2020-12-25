@@ -273,6 +273,7 @@ class Operation:
     self.compat = compat
     self.function_name = function_name
     self.filename = filename
+    self.label_suffix = None
 
   @staticmethod
   def validate_segment_index(segment, index, known_symbols):
@@ -295,12 +296,15 @@ class Operation:
     return segment, index
 
   @property
-  def _label_in_namespace(self):
+  def label_in_namespace(self):
     label = self.args[0]
     if self.function_name is not None and not isinstance(self, FUNCTION_Operation):
       label = f'{self.function_name}.{label}'
     if self.filename is not None:
       label = f'{self.filename}.{label}'
+    if self.label_suffix is not None:
+      label = f'{label}.{self.label_suffix}'
+
 
     # sanitise the label
     safe_label = []
@@ -802,14 +806,14 @@ class LABEL_Operation(Operation):
     # we don't use $ID_ macro here b/c these labels
     # originate from the user and could have scope beyond the
     # assembly emitted for this operation
-    return ASM(f'({self._label_in_namespace})')
+    return ASM(f'({self.label_in_namespace})')
 
 class GOTO_Operation(Operation):
   def resolve(self, known_symbols=None):
     # see comment in LABEL_Operation.resolve
     return ASM(f'''
         // load jump destination into A
-        @{self._label_in_namespace}
+        @{self.label_in_namespace}
 
         // unconditional jump
         0;JEQ
@@ -830,7 +834,7 @@ class IFGOTO_Operation(Operation):
         $dec_sp
 
         // load jump destination
-        @{self._label_in_namespace}
+        @{self.label_in_namespace}
 
         // take a leaf from most languages: true
         // means !0
@@ -849,7 +853,7 @@ class FUNCTION_Operation(Operation):
   def resolve(self, known_symbols=None):
     if int(self.args[1]) > 0:
       function_init = f'''
-        ({self._label_in_namespace})
+        ({self.label_in_namespace})
         $load_sp
       '''
 
@@ -870,23 +874,27 @@ class FUNCTION_Operation(Operation):
     else:
       # when we use no local vars we don't need any init, just a label
       return ASM(f'''
-        ({self._label_in_namespace})
+        ({self.label_in_namespace})
       ''')
 
 class CALL_Operation(Operation):
   def __init__(self, *args, **kwargs):
     super().__init__(*args, **kwargs)
 
-    # all function calls are in the global namespace so we must
-    # set this to generate file-unique label instead of file and function
-    # unique labels
-    self.function_name = None
+    # we are exploiting the fact both the call and function operations have the function name
+    # as the first argument
+    self.f_op = FUNCTION_Operation(*args, **kwargs)
+    self.label_suffix = 'RETURN_FROM_CALL'
 
   def resolve(self, known_symbols=None):
+    """
+    Note that we use the $_ macro to ensure a unique label b/c self.label_in_namespace is the same
+    for calls to the same function in the same file
+    """
     return ASM(f'''
       // push return addr onto the stack
       // load the return addr into D via A
-      @{self._label_in_namespace}
+      @$_{self.label_in_namespace}
       D=A
 
       // put D into top of stack
@@ -949,8 +957,10 @@ class CALL_Operation(Operation):
       M=D
 
       // jump to the function entry point
-      @{self._label_in_namespace}
+      @{self.f_op.label_in_namespace}
       0;JEQ
+
+      ($_{self.label_in_namespace})
   ''')
 
 class RETURN_Operation(Operation):
