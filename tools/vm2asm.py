@@ -236,6 +236,8 @@ class VM2ASM:
 
       # function calling
       'function': FUNCTION_Operation,
+      'call': CALL_Operation,
+      'return': RETURN_Operation,
 
       # EXTENSIONS
       # extra equality checks
@@ -845,30 +847,183 @@ class FUNCTION_Operation(Operation):
     self.function_name = self.args[0]
 
   def resolve(self, known_symbols=None):
-    function_init = f'''
-      ({self._label_in_namespace})
+    if int(self.args[1]) > 0:
+      function_init = f'''
+        ({self._label_in_namespace})
+        $load_sp
+      '''
+
+      local_init = '''
+        // set the current top of stack to 0
+        M=0
+
+        // increment top of stack
+        A=A+1
+      '''*int(self.args[1])
+
+      sp_prep = '''
+        // need this so SP now points to the next available
+        // slot after local vars
+        $save_sp
+      '''
+      return ASM(function_init + local_init + sp_prep)
+    else:
+      # when we use no local vars we don't need any init, just a label
+      return ASM(f'''
+        ({self._label_in_namespace})
+      ''')
+
+class CALL_Operation(Operation):
+  def __init__(self, *args, **kwargs):
+    super().__init__(*args, **kwargs)
+
+    # all function calls are in the global namespace so we must
+    # set this to generate file-unique label instead of file and function
+    # unique labels
+    self.function_name = None
+
+  def resolve(self, known_symbols=None):
+    return ASM(f'''
+      // push return addr onto the stack
+      // load the return addr into D via A
+      @{self._label_in_namespace}
+      D=A
+
+      // put D into top of stack
       $load_sp
-    '''
+      M=D
+      $inc_sp
 
-    local_init = '''
-      // set the current top of stack to 0
-      M=0
+      // push LCL onto the stack
+      // point M to LCL
+      @LCL
+      D=M
+      $load_sp
+      M=D
+      $inc_sp
 
-      // increment top of stack
-      A=A+1
-    '''*int(self.args[1])
+      // push ARG onto the stack
+      @ARG
+      D=M
+      $load_sp
+      M=D
+      $inc_sp
 
-    sp_prep = '''
-      // need this so SP now points to the next available
-      // slot after local vars
+      // push THIS onto the stack
+      @THIS
+      D=M
+      $load_sp
+      M=D
+      $inc_sp
+
+      // push THAT onto the stack
+      @THAT
+      D=M
+      $load_sp
+      M=D
+      $inc_sp
+
+      // recalculate ARG: ARG = SP - n - 5
+      // note that to be backward compat  with HACK platform we can't manipulate the W
+      // register directly
+
+      // SP - n
+      @{self.args[1]}
+      D=A
+      $load_sp
+      // use D for destination b/c we are about to use A for a constant
+      D=A-D
+
+      // ... -5
+      @5
+      D=D-A
+
+      // D now contains the new ARG value which we need to save into the ARG register
+      @ARG
+      M=D
+
+      // write current SP into LCL register
+      $load_sp
+      D=A
+      @LCL
+      M=D
+
+      // jump to the function entry point
+      @{self._label_in_namespace}
+      0;JEQ
+  ''')
+
+class RETURN_Operation(Operation):
+  def resolve(self, known_symbols=None):
+    return ASM('''
+      // store the return value where ARG is pointing to, i.e. *ARG=*SP
+      $load_sp
+      A=A-1
+      D=M
+      @ARG
+      A=M
+      M=D
+
+      // set A to 1 past ARG and save as SP
+      @ARG
+      A=M+1
       $save_sp
-    '''
-    return ASM(function_init + local_init + sp_prep)
+
+      // save the return address at LCL-5 into FRAME b/c we will be updating LCL soon
+      @5
+      D=A
+      @LCL
+      A=M-D
+      D=M
+      @RET
+      M=D
+
+      // restore THAT at LCL-1
+      @LCL
+      A=M-1
+      D=M
+      @THAT
+      M=D
+
+      // restore THIS at LCL-2
+      @2
+      D=A
+      @LCL
+      A=M-D
+      D=M
+      @THIS
+      M=D
+
+      // restore ARG at LCL-3
+      @3
+      D=A
+      @LCL
+      A=M-D
+      D=M
+      @ARG
+      M=D
+
+      // restore LCL at LCL-4
+      @4
+      D=A
+      @LCL
+      A=M-D
+      D=M
+      @LCL
+      M=D
+
+      // load *RET into A and do an unconditional jump to that address
+      @RET
+      A=M
+      0;JEQ
+    ''')
 
 #################
 # HERE BE TESTS #
 # ###############
 
+# most of these tests are not true tests but more a way to (a) excercise the function
+# and (b) make sure it at least runs and assembles
 def test_add():
   asm = ADD_Operation().resolve()
   print(asm)
@@ -1160,6 +1315,27 @@ def test_s_clear():
 def test_function():
   translator = VM2ASM(no_init=True)
   asm = translator.translate('function FOO 5').dumps()
+  Assembler().assemble(asm)
+  print(asm)
+
+def test_call():
+  translator = VM2ASM(no_init=True)
+  asm = translator.translate('''
+      function FOO 3
+      call FOO 3
+  ''').dumps()
+  Assembler().assemble(asm)
+  print(asm)
+
+def test_return():
+  translator = VM2ASM(no_init=True)
+  asm = translator.translate('''
+      function FOO 0
+      push argument 0
+      push argument 1
+      sub
+      return
+  ''').dumps()
   Assembler().assemble(asm)
   print(asm)
 
