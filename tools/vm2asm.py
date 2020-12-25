@@ -18,12 +18,12 @@ from asm import ASM
 @click.option('-o', '--output-asm', type=click.Path(dir_okay=False),
               help='Output asm file')
 @click.option('-C', '--compat', is_flag=True,
-              help=f'If runs in compatibility mode in which the output is '
-                   f'exactly produced by the reference translator written in '
-                   f'java')
+              help='If runs in compatibility mode in which the output is '
+                   'exactly produced by the reference translator written in '
+                   'java')
 @click.option('-A', '--annotate', is_flag=True,
-              help=f'If given hack output will be annotated with source '
-                   f'lines or PC counts')
+              help='If given hack output will be annotated with source '
+                   'lines or PC counts')
 @click.option('--LCL', 'LCL', type=int,
               help='Set base address of the local (LCL) segment')
 @click.option('--ARG', 'ARG', type=int,
@@ -102,7 +102,7 @@ class VM2ASM:
             ''')
         self.asm_output += asm.to_list(indent=4)
 
-      self.asm_output.append(f'// INIT BEGIN')
+      self.asm_output.append('// INIT BEGIN')
 
       set_ram('SP', VM2ASM.STACK_BASE_ADDRESS)
 
@@ -141,7 +141,7 @@ class VM2ASM:
       set_ram('T2', 0)
 
       if annotate:
-        self.asm_output.append(f'// INIT END')
+        self.asm_output.append('// INIT END')
 
 
   def write_asm(self):
@@ -160,7 +160,9 @@ class VM2ASM:
   def translate(self, vm_text=None):
     if vm_text:
       vm_lines = vm_text.splitlines()
+      filename = '<in memory>'
     else:
+      filename = self._input_vm
       with open(self._input_vm) as fh:
         vm_lines = fh.readlines()
 
@@ -180,7 +182,7 @@ class VM2ASM:
     current_function_name = None
     for l in vm_lines:
       source_block.append(l)
-      op = self._parse(l, current_function_name)
+      op = self._parse(l, current_function_name, filename)
       if op:
         operations.append(op)
 
@@ -198,7 +200,7 @@ class VM2ASM:
     # this allows chaining, e.g. self.translate().dumps()
     return self
 
-  def _parse(self, source_line, current_function_name):
+  def _parse(self, source_line, current_function_name, filename):
     if '//' in source_line:
       exp, _ = source_line.split('//', 1)
     else:
@@ -255,16 +257,20 @@ class VM2ASM:
     except KeyError:
       raise SyntaxError(f'Unknown operation {op}')
 
-    return op_cls(args, compat=self._compat, function_name=current_function_name)
+    return op_cls(args,
+                  compat=self._compat,
+                  function_name=current_function_name,
+                  filename=filename)
 
 class Operation:
   """
   See note at top of file re: adding new instructions.
   """
-  def __init__(self, args=None, compat=False, function_name=None):
+  def __init__(self, args=None, compat=False, function_name=None, filename=None):
     self.args = args
     self.compat = compat
     self.function_name = function_name
+    self.filename = filename
 
   @staticmethod
   def validate_segment_index(segment, index, known_symbols):
@@ -289,9 +295,20 @@ class Operation:
   @property
   def _label_in_namespace(self):
     label = self.args[0]
-    if self.function_name:
-      label = f'{self.function_name}:{label}'
-    return label
+    if self.function_name is not None and not isinstance(self, FUNCTION_Operation):
+      label = f'{self.function_name}.{label}'
+    if self.filename is not None:
+      label = f'{self.filename}.{label}'
+
+    # sanitise the label
+    safe_label = []
+    for c in label:
+      if c.isalnum() or c in '._':
+        safe_label.append(c)
+      else:
+        safe_label.append('_')
+
+    return ''.join(safe_label)
 
   def resolve(self, known_symbols=None):
     """
@@ -828,9 +845,25 @@ class FUNCTION_Operation(Operation):
     self.function_name = self.args[0]
 
   def resolve(self, known_symbols=None):
-    # XXX STUB
-    return ASM('')
+    function_init = f'''
+      ({self._label_in_namespace})
+      $load_sp
+    '''
 
+    local_init = '''
+      // set the current top of stack to 0
+      M=0
+
+      // increment top of stack
+      A=A+1
+    '''*int(self.args[1])
+
+    sp_prep = '''
+      // need this so SP now points to the next available
+      // slot after local vars
+      $save_sp
+    '''
+    return ASM(function_init + local_init + sp_prep)
 
 #################
 # HERE BE TESTS #
@@ -1030,7 +1063,7 @@ def test_pop_temp():
 def test_label():
   translator = VM2ASM(no_init=True)
   asm = translator.translate('label HELLO').dumps().strip()
-  assert asm == '(HELLO)'
+  assert asm == '(_in_memory_.HELLO)'
   Assembler().assemble(asm)
 
 def test_label_in_function():
@@ -1039,7 +1072,7 @@ def test_label_in_function():
       function HELLO 0
       label WORLD
   ''').dumps()
-  assert 'HELLO:WORLD' in asm
+  assert '_in_memory_.HELLO.WORLD' in asm
   Assembler().assemble(asm)
 
 def test_goto():
@@ -1123,6 +1156,12 @@ def test_s_clear():
   Assembler().assemble(asm)
   asm = translator.translate('s_clear local 1').dumps()
   Assembler().assemble(asm)
+
+def test_function():
+  translator = VM2ASM(no_init=True)
+  asm = translator.translate('function FOO 5').dumps()
+  Assembler().assemble(asm)
+  print(asm)
 
 if __name__ == '__main__':
   main()
