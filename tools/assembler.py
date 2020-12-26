@@ -198,9 +198,9 @@ class Assembler:
           else:
             machine_code = None
         else:
-          pc += 1
           if should_annotate:
             machine_code += f' // PC={pc}'
+          pc += 1
 
         if should_annotate:
           self.hack_output.append('')
