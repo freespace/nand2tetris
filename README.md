@@ -11,6 +11,15 @@ Chapters are checked off as they are (a) implemented and passes the supplied tes
 ✅ Chapter 6
 ✅ Chapter 7
 
+Chapter Notes
+=============
+
+Chapter 8
+---------
+
+The ordering of operations for handling a return results in the return address being overwritten
+with the return value if the number of arguments is 0 b/c ARG and LCL-5 are the same address.
+It is necessary therefore to first save the return address and _then_ store the return value.
 
 Significant Implementation Differences
 ======================================
