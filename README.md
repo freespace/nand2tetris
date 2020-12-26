@@ -1,3 +1,17 @@
+Status
+======
+
+Chapters are checked off as they are (a) implemented and passes the supplied tests.
+
+✅ Chapter 1
+✅ Chapter 2
+✅ Chapter 3
+✅ Chapter 4
+✅ Chapter 5
+✅ Chapter 6
+✅ Chapter 7
+
+
 Significant Implementation Differences
 ======================================
 Hardware RAM
@@ -74,6 +88,10 @@ backward compatibility!
 
 Assembler
 ---------
+### Valid Symbol Characters
+The course calls for $ to be a valid character, however I accidentally used it for the macro
+system so it cannot be a valid identifier any more.
+
 ### Numeric Constants
 Our implementation of the assembler (`tools/assembler.py`) accepts hex and binary constants in the
 form of:
@@ -155,6 +173,14 @@ Chapters and Projects
 
 Chapters 1-5 are implemented in their respective `projects/` folder. Chapters 6
 onwards live in `tools/` b/c that makes the mose sense to me.
+
+Running Tests
+-------------
+
+I have issue using the supplied software as-is, often getting opaque errors about "Expression
+expected on line 0". So I would often I edit the `.tst` files to remove the load commands and only
+preserve the RAM setup commands. I would then mostly manually verify the content of RAM is as
+expected against the `.cmp` files.
 
 Development Environment
 =======================
