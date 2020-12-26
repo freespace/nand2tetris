@@ -11,11 +11,12 @@ import click
 from assembler import Assembler
 from asm import ASM
 
+NAMESPACE_FILE = 'file'
+NAMESPACE_FUNCTION = 'function'
+
 @click.command()
-@click.option('-i', '--input-vm', type=click.Path(dir_okay=False, exists=True),
-              required=True,
-              help='Input VM file')
-@click.option('-o', '--output-asm', type=click.Path(dir_okay=False),
+@click.argument('input_vm_files', nargs=-1, type=click.Path(dir_okay=False, exists=True))
+@click.option('-o', '--output-asm-file', type=click.Path(dir_okay=False),
               help='Output asm file')
 @click.option('-C', '--compat', is_flag=True,
               help='If runs in compatibility mode in which the output is '
@@ -36,10 +37,36 @@ from asm import ASM
               help='Use format AAA=VVV to specify RAM[AAA] = VVV')
 @click.option('--no-init', is_flag=True,
               help='If given no initialisation code is generated')
-def main(*args, **kwargs):
+@click.option('--init-function', type=str, default='Sys.init',
+              help='When compiling multiple files into a single assembly unit this specifies'
+                   'the name of the function to call after initialisation. Defaults to'
+                   'Sys.init as per course specifications')
+def main(input_vm_files, *args, **kwargs):
+
+  output_file = kwargs.pop('output_asm_file')
+  init_function_name = kwargs.pop('init_function')
+
+  # generate init code
   translator = VM2ASM(*args, **kwargs)
-  translator.translate()
-  translator.write_asm()
+  translator.translate(f'call {init_function_name} 0')
+  output_asm = translator.dumps() + '\n\n'
+
+  # all sub-translation units do no initialisation
+  kwargs['no_init'] = True
+
+  for vm_file in input_vm_files:
+    kwargs['input_vm'] = vm_file
+    translator = VM2ASM(*args, **kwargs)
+    translator.translate()
+
+    output_asm += translator.dumps()
+    output_asm += '\n\n'
+
+  if output_file is not None:
+    with open(output_file, 'w') as fh:
+      fh.write(output_asm)
+  else:
+    print(output_asm)
 
 class VM2ASM:
   """
@@ -69,7 +96,6 @@ class VM2ASM:
 
   def __init__(self,
                input_vm=None,
-               output_asm=None,
                compat=False,
                annotate=False,
                no_init=False,
@@ -79,10 +105,10 @@ class VM2ASM:
                THIS=None,
                THAT=None):
     self._input_vm = input_vm
-    self._output_asm = output_asm
     self._compat = compat
     self._annotate = annotate
     self._known_symbols = dict(VM2ASM.PREDEFINED_CONSTANTS)
+    self._operations = None
 
     ASM.set_compat(self._compat)
 
@@ -142,13 +168,9 @@ class VM2ASM:
       if annotate:
         self.asm_output.append('// INIT END')
 
-
-  def write_asm(self):
-    if self._output_asm is None:
-      print(self.dumps())
-    else:
-      with open(self._output_asm, 'w') as fh:
-        fh.write(self.dumps())
+  def write_asm(self, output_file):
+    with open(output_file, 'w') as fh:
+      fh.write(self.dumps())
 
   def dumps(self):
     """
@@ -159,12 +181,14 @@ class VM2ASM:
   def translate(self, vm_text=None):
     if vm_text:
       vm_lines = vm_text.splitlines()
-      filename = '<in memory>'
     else:
-      filename = self._input_vm
       with open(self._input_vm) as fh:
         vm_lines = fh.readlines()
 
+    if self._input_vm is not None:
+      filename = self._input_vm
+    else:
+      filename = '<in memory>'
     # strip whitespace and remove empty lines
     vm_lines = [l.strip() for l in vm_lines]
     vm_lines = [l for l in vm_lines if len(l)]
@@ -266,13 +290,30 @@ class VM2ASM:
 class Operation:
   """
   See note at top of file re: adding new instructions.
+
+  The namespace argument controls how we generate labels. Normally labels inside functions are
+  prefixed using the function's name to avoid label collisions, e.g. function FOO and BAR can
+  both use WHILE as a label without issue b/c the generated labels are FOO.WHILE and BAR.WHILE
+  respectively. However some labels, such as those for static variables are file-scope, so
+  they need to be generated using the filename as the prefix.
+
+  :param args: array of arguments, i.e. everything that comes after the operation name, separated
+         by space. e.g. 'abc 123' => ['abc', '123']
+  :param compat: when True generates HACK compatible asm, otherwise generates HACKx compatible
+         asm. Default is False.
+  :param function_name: name of the function this operation is in, None if not known (Default).
+  :param filename: name of the file this operation is in, None if not known (Default).
+  :param namespace: namespace of this operation, defaults to 'function', can also be 'file'
+  :return: instance of Operation
+
   """
-  def __init__(self, args=None, compat=False, function_name=None, filename=None):
+  def __init__(self, args=None, compat=False, function_name=None, filename=None, namespace='function'):
     self.args = args
     self.compat = compat
     self.function_name = function_name
     self.filename = filename
     self.label_suffix = None
+    self.namespace = namespace
 
   @staticmethod
   def validate_segment_index(segment, index, known_symbols):
@@ -297,13 +338,17 @@ class Operation:
   @property
   def label_in_namespace(self):
     label = self.args[0]
-    if self.function_name is not None and not isinstance(self, FUNCTION_Operation):
-      label = f'{self.function_name}.{label}'
-    if self.filename is not None:
-      label = f'{self.filename}::{label}'
+
+    if self.namespace == NAMESPACE_FUNCTION:
+      if self.function_name is not None and not isinstance(self, FUNCTION_Operation):
+        label = f'{self.function_name}::{label}'
+
+    if self.namespace == NAMESPACE_FILE:
+      if self.filename is not None:
+        label = f'{self.filename}::{label}'
+
     if self.label_suffix is not None:
       label = f'{label}:{self.label_suffix}'
-
 
     # sanitise the label
     safe_label = []
@@ -502,6 +547,8 @@ class PUSH_Operation(Operation):
   the stack. SP is incremented.
   """
   def resolve(self, known_symbols=None):
+    self.namespace = NAMESPACE_FILE
+
     segment, index = self.args
     segment, index = Operation.validate_segment_index(segment, index, known_symbols)
 
@@ -615,6 +662,8 @@ class POP_Operation(Operation):
   is decremented.
   """
   def resolve(self, known_symbols=None):
+    self.namespace = NAMESPACE_FILE
+
     segment, index = self.args
     segment, index = Operation.validate_segment_index(segment, index, known_symbols)
 
@@ -978,6 +1027,17 @@ class CALL_Operation(Operation):
 class RETURN_Operation(Operation):
   def resolve(self, known_symbols=None):
     return ASM('''
+      // save the return address at LCL-5 into FRAME b/c we will be updating LCL soon and also
+      // if number of arguments is 0 ARG and LCL-5 are pointing to the same place and we will
+      // end up overwriting the return address when we store the return value into ARG
+      @5
+      D=A
+      @LCL
+      A=M-D
+      D=M
+      @RET
+      M=D
+
       // store the return value where ARG is pointing to, i.e. *ARG=*SP
       $load_sp
       A=A-1
@@ -990,15 +1050,6 @@ class RETURN_Operation(Operation):
       @ARG
       A=M+1
       $save_sp
-
-      // save the return address at LCL-5 into FRAME b/c we will be updating LCL soon
-      @5
-      D=A
-      @LCL
-      A=M-D
-      D=M
-      @RET
-      M=D
 
       // restore THAT at LCL-1
       @LCL
