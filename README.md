@@ -10,6 +10,7 @@ Chapters are checked off as they are (a) implemented and passes the supplied tes
 ✅ Chapter 5
 ✅ Chapter 6
 ✅ Chapter 7
+✅ Chapter 8
 
 Significant Implementation Differences
 ======================================
