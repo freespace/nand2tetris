@@ -1,0 +1,19 @@
+call main 0
+
+function add 0
+  push argument 0
+  push argument 1
+  add
+  return
+
+function main 0
+  push constant 5
+  push constant 10
+  call add 2
+
+  push constant 13
+  call add 2
+
+  label LOOP
+  goto LOOP
+
