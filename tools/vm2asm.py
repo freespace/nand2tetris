@@ -53,13 +53,12 @@ class VM2ASM:
   SEGMENT_BASE_ADDR_TABLE = {
       'argument': 'ARG',
       'local'   : 'LCL',
-      'static'  : '16',
       'this'    : 'THIS',
       'that'    : 'THAT',
   }
 
   SEGMENT_SIZE_TABLE = {
-      'static'  : 255- 16 + 1,
+      'static'  : 255 - STATIC_BASE_ADDRESS + 1,
       'temp'    : 8,
       'pointer' : 2,
   }
@@ -301,18 +300,21 @@ class Operation:
     if self.function_name is not None and not isinstance(self, FUNCTION_Operation):
       label = f'{self.function_name}.{label}'
     if self.filename is not None:
-      label = f'{self.filename}.{label}'
+      label = f'{self.filename}::{label}'
     if self.label_suffix is not None:
-      label = f'{label}.{self.label_suffix}'
+      label = f'{label}:{self.label_suffix}'
 
 
     # sanitise the label
     safe_label = []
     for c in label:
-      if c.isalnum() or c in '._':
+      if c.isalnum() or c in '._:':
         safe_label.append(c)
       else:
         safe_label.append('_')
+
+    if safe_label[0].isdigit():
+      raise Exception('Label cannot start with a digit')
 
     return ''.join(safe_label)
 
@@ -575,6 +577,12 @@ class PUSH_Operation(Operation):
       mem_addr = VM2ASM.TEMP_BASE_ADDRESS + index
       return push_content_of_memory(mem_addr)
 
+    elif segment == 'static':
+      # static is special where we don't actually index into anything but auto-allocate into
+      # the variable memory address. We leave that job to the assembler
+      mem_addr = f'{self.label_in_namespace}.STATIC{index}'
+      return push_content_of_memory(mem_addr)
+
     elif segment == 'pointer':
       # set the addr of this (0) or that (1)
       ptr_name = ['this', 'that'][index]
@@ -692,6 +700,12 @@ class POP_Operation(Operation):
       # b/c temp is fixed we can calculate the pointer address
       # directly
       mem_addr = VM2ASM.TEMP_BASE_ADDRESS + index
+      return pop_into_memory(mem_addr)
+
+    elif segment == 'static':
+      # static is special where we don't actually index into anything but auto-allocate into
+      # the variable memory address. We leave that job to the assembler
+      mem_addr = f'{self.label_in_namespace}.STATIC{index}'
       return pop_into_memory(mem_addr)
 
     elif segment == 'pointer':
@@ -896,8 +910,6 @@ class CALL_Operation(Operation):
       // load the return addr into D via A
       @$_{self.label_in_namespace}
       D=A
-
-      // put D into top of stack
       $load_sp
       M=D
       $inc_sp
@@ -1151,10 +1163,21 @@ def test_push_pointer():
   Assembler().assemble(asm)
 
 def test_push_static():
-  translator = VM2ASM(None, annotate=True)
+  translator = VM2ASM(None, annotate=True, no_init=True)
   translator.translate('push static 1')
   asm = translator.dumps()
   Assembler().assemble(asm)
+  print(asm)
+
+  translator = VM2ASM(None, annotate=True, no_init=True)
+  translator.translate('''
+    function foo 0
+    push static 1
+    return
+  ''')
+  asm = translator.dumps()
+  Assembler().assemble(asm)
+  print(asm)
 
 def test_push_temp():
   translator = VM2ASM(None, annotate=True)
@@ -1201,9 +1224,15 @@ def test_pop_local():
   Assembler().assemble(asm)
 
 def test_pop_static():
-  translator = VM2ASM(LCL=300, ARG=400, THIS=3000, THAT=3010, annotate=True)
+  translator = VM2ASM(annotate=True, no_init=True)
   asm = translator.translate('pop static 1').dumps()
   Assembler().assemble(asm)
+  print('pop static 1\n', asm)
+
+  translator = VM2ASM(annotate=True, no_init=True)
+  asm = translator.translate('pop static 0').dumps()
+  Assembler().assemble(asm)
+  print('pop static 0\n', asm)
 
 def test_pop_pointer():
   translator = VM2ASM(LCL=300, ARG=400, THIS=3000, THAT=3010, annotate=True)
