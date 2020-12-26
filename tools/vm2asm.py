@@ -36,20 +36,24 @@ NAMESPACE_FUNCTION = 'function'
 @click.option('--RAM', 'ram_specs', type=str, multiple=True,
               help='Use format AAA=VVV to specify RAM[AAA] = VVV')
 @click.option('--no-init', is_flag=True,
-              help='If given no initialisation code is generated')
+              help='If given no initialisation code is generated, which means no SP initalisation'
+                   'and no call to the init function')
 @click.option('--init-function', type=str, default='Sys.init',
               help='When compiling multiple files into a single assembly unit this specifies'
                    'the name of the function to call after initialisation. Defaults to'
                    'Sys.init as per course specifications')
 def main(input_vm_files, *args, **kwargs):
 
-  output_file = kwargs.pop('output_asm_file')
   init_function_name = kwargs.pop('init_function')
+  output_file = kwargs.pop('output_asm_file')
 
-  # generate init code
-  translator = VM2ASM(*args, **kwargs)
-  translator.translate(f'call {init_function_name} 0')
-  output_asm = translator.dumps() + '\n\n'
+  if kwargs['no_init']:
+    output_asm = ''
+  else:
+    # generate init code
+    translator = VM2ASM(*args, **kwargs)
+    translator.translate(f'call {init_function_name} 0')
+    output_asm = translator.dumps() + '\n\n'
 
   # all sub-translation units do no initialisation
   kwargs['no_init'] = True
