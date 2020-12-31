@@ -6,11 +6,13 @@ import click
 OPT_LOADS = 'loads'
 OPT_CONSEC_NOPS = 'consec_nops'
 OPT_UNNEEDED_NOPS = 'unneeded_nops'
+OPT_MULTIDEST_ASSIGNMENT = 'multidest_assignment'
 OPT_ALL = 'all'
 OPT_CHOICES=(OPT_ALL,
              OPT_LOADS,
              OPT_CONSEC_NOPS,
-             OPT_UNNEEDED_NOPS)
+             OPT_UNNEEDED_NOPS,
+             OPT_MULTIDEST_ASSIGNMENT)
 
 @click.command()
 @click.option('-i', '--input-asm', type=click.Path(dir_okay=False, exists=True),
@@ -19,20 +21,20 @@ OPT_CHOICES=(OPT_ALL,
 @click.option('-o', '--output-hack', type=click.Path(dir_okay=False),
               help='Output hack file')
 @click.option('-C', '--compat', is_flag=True,
-              help=f'If runs in compatibility mode in which the output is '
-                   f'exactly produced by the reference Assembler written in '
-                   f'java')
+              help='If runs in compatibility mode in which the output is '
+                   'exactly produced by the reference Assembler written in '
+                   'java')
 @click.option('-P', '--pretty-print', is_flag=True,
-              help=f'If given output will have _ inserted to make instructions '
-                   f'easier to read')
+              help='If given output will have _ inserted to make instructions '
+                   'easier to read')
 @click.option('-A', '--annotate', is_flag=True,
-              help=f'If given hack output will be annotated with source '
-                   f'lines or PC counts')
+              help='If given hack output will be annotated with source '
+                   'lines or PC counts')
 @click.option('-O', '--optimise', type=click.Choice(OPT_CHOICES), default=None,
               help='If given enables the specified optimisation. Defaults to "all".')
 @click.option('--count', 'print_count', is_flag=True,
-              help=f'If given the number of instructions, minus annotation '
-                   f'is printed to stderr')
+              help='If given the number of instructions, minus annotation '
+                   'is printed to stderr')
 def main(*args, **kwargs):
   assembler = Assembler(*args, **kwargs)
   assembler.assemble()
@@ -103,8 +105,17 @@ class Assembler:
 
     self._warnings = []
 
+    self._instructions = None
+
     if annotate:
       self.hack_output.append(f'// SOURCE FILE={input_asm}')
+
+  @property
+  def instructions(self):
+    if self._instructions is not None:
+      return list(self._instructions)
+    else:
+      return None
 
   @property
   def warnings(self):
@@ -217,10 +228,13 @@ class Assembler:
       last_inst = instructions[-1]
 
       if type(last_inst) != C_Instruction or last_inst.jump == 'XXX':
-        self.warn(f'Last instruction should be a jump instruction')
+        self.warn('Last instruction should be a jump instruction')
 
     if self._print_count:
       sys.stderr.write(f'Assembled {pc} instructions\n')
+
+    # make the instructions available for inspection
+    self._instructions = instructions
 
     # allow chaining, e.g. self.assemble().dumps()
     return self
@@ -286,7 +300,90 @@ class Assembler:
     if doall or oopt == OPT_UNNEEDED_NOPS:
       self._remove_unneeded_nops(instructions)
 
+    if doall or oopt == OPT_MULTIDEST_ASSIGNMENT:
+      self._optimise_using_multi_destination_assignments(instructions)
+
     return instructions
+
+  def _optimise_using_multi_destination_assignments(self, instructions):
+    """
+    Optimises code such as:
+
+      A = A + 1
+      D = A
+
+    into
+
+      A,D = A + 1
+
+    This works if:
+
+      1. X is the lvalue
+      2. X is then the rvalue in a Y=X
+      3. Y is not read between 1 and 2
+    """
+    candidate_inst = None
+    read_vars = set()
+    for inst in (inst for inst in instructions if inst.emit):
+      if type(inst) != C_Instruction:
+        continue
+
+      # see if we can optimise the current instruction away
+      if candidate_inst is not None:
+        canoptimise = True
+
+        # cannot optimise multi-destination assignment
+        if len(inst.dest) != 1:
+          canoptimise = False
+
+        # can only optimise no-compute assignments
+        if len(inst.comp) != 1:
+          canoptimise = False
+
+        # cannot optimise if the destination and source of the two instructions
+        # are different
+        if inst.comp != candidate_inst.dest:
+          canoptimise = False
+
+        # cannot optimise if the destination was read before now
+        if inst.dest in read_vars:
+          canoptimise = False
+
+        if canoptimise:
+          inst.emit = False
+          candidate_inst.dest += ',' + inst.dest
+          candidate_inst.regenerate_expression()
+
+          # reset the optimisation state
+          candidate_inst = None
+
+          continue
+
+      # otherwise see if this instruction is candidate for optimisation. An instruction is a
+      # candidate for optimisation if it has a single destination
+      if len(inst.dest) == 1:
+        # we only optimise away single assignments
+        candidate_inst = inst
+        read_vars = set()
+
+        # continue b/c we shall do no more with this instruction
+        continue
+
+      # if an instruction is not a candidate for optimisations then track the variables it is
+      # reading
+      for src in 'ADMW':
+        if src in inst.comp:
+          read_vars.add(src)
+
+
+      # if there is a jump anywhere we need to reset optimisation state b/c we cannot optimise
+      # across jump instructions b/c the other path may require D without modification
+      if inst.jump != 'XXX':
+        candidate_inst = None
+
+      # we also, at the moment, do not optimise across multi-destination assignments either
+      if len(inst.dest) > 1:
+        candidate_inst = None
 
   def _remove_unneeded_nops(self, instructions):
     """
@@ -446,6 +543,9 @@ class Instruction:
     """
     raise NotImplementedError()
 
+  def __str__(self):
+    return f'[{type(self).__name__}] {self.expression}'
+
 class Label_Instruction(Instruction):
   def symbols(self):
     return [self.expression[1:-1]]
@@ -481,6 +581,9 @@ class C_Instruction(Instruction):
 
     dest = ''
     comp = ''
+
+    # the default value is XXX b/c we do self.jump in 'JEQ JNE' etc and if we used '' as the
+    # default value it will always match
     jump = 'XXX'
 
     if '=' in src:
@@ -495,6 +598,25 @@ class C_Instruction(Instruction):
     self.dest = dest
     self.comp = comp
     self.jump = jump
+
+  def regenerate_expression(self):
+    """
+    Regenerates self.expression according to self.dest/comp/jump. Needed when optimisers modify
+    an instruction's dest/comp/jump and we want the annotated output to match the binary emitted
+    """
+    expr = ''
+    if len(self.dest):
+      expr = self.dest + '='
+
+    expr += self.comp
+
+    if self.jump != 'XXX':
+      expr += ';' + self.jump
+
+    self.expression = expr
+
+    if self.source_block:
+      self.source_block[-1] = expr
 
   def symbols(self):
     return []
@@ -755,3 +877,91 @@ def test_optmise_unneeded_nops_02():
   opt_lines = mcode_opt.splitlines()
 
   assert len(opt_lines) < len(no_opt_lines)
+
+def test_multidest_assignment_optimisation():
+  # this test should reduce down to A,D=A+1
+  src = '''
+    A=A+1
+    D=A
+  '''
+
+  inst_vec = Assembler(optimise=OPT_MULTIDEST_ASSIGNMENT, annotate=True).assemble(src).instructions
+  assert inst_vec[-1].emit == False
+  assert inst_vec[0].expression == 'A,D=A+1'
+
+  # this test should reduce M=A+1 into M,D=A+1
+  src = '''
+    A=A+1
+    M=A+1
+    D=M
+  '''
+  inst_vec = Assembler(optimise=OPT_MULTIDEST_ASSIGNMENT, annotate=True).assemble(src).instructions
+  # ignore the nops inserted for memory writes
+  inst_vec = [inst for inst in inst_vec if inst.comp != '0']
+  assert inst_vec[-1].emit == False
+  assert inst_vec[1].expression == 'M,D=A+1'
+
+  # this test should result in no optimisation
+  src = '''
+    A=A+1
+    M=D
+    D=A
+  '''
+  inst_vec = Assembler(optimise=OPT_MULTIDEST_ASSIGNMENT, annotate=True).assemble(src).instructions
+  # ignore the nops inserted for memory writes
+  inst_vec = [inst for inst in inst_vec if inst.comp != '0']
+  len(inst_vec) == 3
+
+
+  # this test should also result in no optimisation
+  src = '''
+    D=A
+    M=A
+    A=D
+  '''
+  inst_vec = Assembler(optimise=OPT_MULTIDEST_ASSIGNMENT, annotate=True).assemble(src).instructions
+  # ignore the nops inserted for memory writes
+  inst_vec = [inst for inst in inst_vec if inst.comp != '0']
+  len(inst_vec) == 3
+
+  # this test should result in optimisation
+  src = '''
+    A=M
+    0
+    0
+    0
+    0
+    D=A
+  '''
+  inst_vec = Assembler(optimise=OPT_MULTIDEST_ASSIGNMENT, annotate=True).assemble(src).instructions
+  assert inst_vec[-1].emit == False
+  assert inst_vec[0].expression == 'A,D=M'
+
+  # no optimisation across jumps
+  src = '''
+    A = M
+    0; JEQ
+    D = A
+  '''
+  inst_vec = Assembler(optimise=OPT_MULTIDEST_ASSIGNMENT, annotate=True).assemble(src).instructions
+  assert len(inst_vec) == 3
+
+  # no optimisation across multi-destination assignments
+  src = '''
+    A = M
+    D, A = A + 1
+    W = D
+  '''
+  inst_vec = Assembler(optimise=OPT_MULTIDEST_ASSIGNMENT, annotate=True).assemble(src).instructions
+  assert len(inst_vec) == 3
+
+def test_regenerate_expression():
+  inst = C_Instruction('A = M')
+  inst.dest = 'A,D'
+  inst.regenerate_expression()
+  assert inst.expression == 'A,D=M'
+
+  inst = C_Instruction('A = M+1;     JEQ')
+  inst.dest = 'A,D'
+  inst.regenerate_expression()
+  assert inst.expression == 'A,D=M+1;JEQ'
