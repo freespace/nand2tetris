@@ -88,6 +88,19 @@ backward compatibility!
 
 Assembler
 ---------
+### Macros
+
+Macros are implemented in two places:
+
+1. `asm.py` used by `vm2asm.py`
+2. `assembler.py`
+
+Macros in `asm.py` are self contained and emits assembly instruction to perform set tasks, e.g.
+`$inc_sp` to increment the stack pointer by 1.
+
+Macros in `assembler.py` have wider ranging effects, e.g. `$const` defines a new constant in the
+symbol table.
+
 ### Valid Symbol Characters
 The course calls for $ to be a valid character, however I accidentally used it for the macro
 system so it cannot be a valid identifier any more.
