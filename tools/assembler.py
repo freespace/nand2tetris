@@ -3,6 +3,8 @@
 import sys
 import click
 
+import time
+
 OPT_LOADS = 'loads'
 OPT_CONSEC_NOPS = 'consec_nops'
 OPT_UNNEEDED_NOPS = 'unneeded_nops'
@@ -13,6 +15,8 @@ OPT_CHOICES=(OPT_ALL,
              OPT_CONSEC_NOPS,
              OPT_UNNEEDED_NOPS,
              OPT_MULTIDEST_ASSIGNMENT)
+
+NO_JUMP = 'NOJUMP'
 
 @click.command()
 @click.option('-i', '--input-asm', type=click.Path(dir_okay=False, exists=True),
@@ -138,6 +142,20 @@ class Assembler:
       with open(self._output_hack, 'w') as fh:
         fh.write(self.dumps())
 
+  def preprocess(self, asm_lines):
+    postprocessed_lines = []
+    for l in asm_lines:
+      append = True
+
+      if l.startswith('$const '):
+        self._parse_const_macro(l)
+        append = False
+
+      if append:
+        postprocessed_lines.append(l)
+
+    return postprocessed_lines
+
   def assemble(self, asm_text=None):
     if asm_text:
       asm_lines = asm_text.split('\n')
@@ -152,6 +170,8 @@ class Assembler:
 
     # remove empty lines
     asm_lines = [l for l in asm_lines if len(l)]
+
+    asm_lines = self.preprocess(asm_lines)
 
     instructions = []
     # first pass to parse instructions and grab labels
@@ -170,8 +190,6 @@ class Assembler:
         # we do not reset source_line here b/c we want to keep
         # labels in the source block
         instructions += self._parse_label(exp, source_block)
-      elif exp.startswith('$const '):
-        instructions += self._parse_const(exp, source_block)
       else:
         # these instruction reset source_block so are in their own branch
         if exp[0] == '@':
@@ -230,7 +248,7 @@ class Assembler:
     else:
       last_inst = instructions[-1]
 
-      if type(last_inst) != C_Instruction or last_inst.jump == 'XXX':
+      if type(last_inst) != C_Instruction or last_inst.jump == NO_JUMP:
         self.warn('Last instruction should be a jump instruction')
 
     if self._print_count:
@@ -248,8 +266,39 @@ class Assembler:
   def _parse_label(self, l, source_block):
     return [Label_Instruction(l, source_block=source_block)]
 
-  def _parse_const(self, l, source_block):
-    return [Const_Instruction(l, source_block=source_block)]
+  def _parse_call(self, l, source_block):
+    parts = [p for p in l.split(' ') if len(p)]
+    jump_dest = parts[1]
+
+    return_addr_label = f'RETURN_FROM_{jump_dest}.{int(time.time())}'
+    src = f'''
+      // push the return address onto the stack
+
+      // load return address into D
+      @{return_addr_label}
+      D=A
+
+      // get pointer to top of stack
+      @SP
+      A=M
+
+      // write to top of stack
+      M=D
+
+      // increment SP
+      @SP
+      M=M+1
+
+      // jump to destination
+      @{jump_dest}
+      0; JEQ
+
+      // on $return continue from here
+      ({return_addr_label})
+    '''
+
+    return Assembler(compat=self._compat).assemble(src).instructions
+
 
   def _parse_C_inst(self, l, source_block):
     inst = C_Instruction(l, source_block=source_block)
@@ -269,6 +318,17 @@ class Assembler:
 
     return ret
 
+  def _parse_const_macro(self, line):
+    parts = [p for p in line.split(' ') if len(p)]
+    if len(parts) != 3:
+      raise Exception(f'Invalid $const expression: {self.expression}')
+
+    _, name, value = parts
+
+    value = Instruction('').parse_numeric_constant(value)
+
+    self.known_symbols[name] = value
+
   def _resolve_symbols(self, instructions):
     # find all labels and update
     # keep track of labels we have seen this pass to avoid
@@ -284,12 +344,6 @@ class Assembler:
         seen_labels.add(symbol)
       elif inst.emit:
         pc += 1
-
-    # find all constants and remember their values
-    for inst in instructions:
-      if type(inst) == Const_Instruction:
-        name, value = inst.symbols()
-        self.known_symbols[name] = value
 
     # find all variables and assign RAM location if not
     # already known
@@ -390,7 +444,7 @@ class Assembler:
 
       # if there is a jump anywhere we need to reset optimisation state b/c we cannot optimise
       # across jump instructions b/c the other path may require D without modification
-      if inst.jump != 'XXX':
+      if inst.jump != NO_JUMP:
         candidate_inst = None
 
       # we also, at the moment, do not optimise across multi-destination assignments either
@@ -454,11 +508,7 @@ class Instruction:
                          This includes comments and jump labels.
     """
 
-    # special commands are prefixed with $ where space matters
-    if expression[0] != '$':
-      self.expression = expression.replace(' ','')
-    else:
-      self.expression = expression
+    self.expression = expression.replace(' ','')
 
     self.generated = generated
     self.source_block = source_block
@@ -594,25 +644,6 @@ class A_Instruction(Instruction):
 
     return f'0{val:015b}'
 
-class Const_Instruction(Instruction):
-  def __init__(self, *args, **kwargs):
-    super().__init__(*args, **kwargs)
-    self.emit = False
-
-  def symbols(self):
-    parts = [p for p in self.expression.split(' ') if len(p)]
-    if len(parts) != 3:
-      raise Exception(f'Invalid $const expression: {self.expression}')
-
-    _, name, value = parts
-
-    value = self.parse_numeric_constant(value)
-
-    return (name, value)
-
-  def resolve(self, *args, **kwargs):
-    return None
-
 class C_Instruction(Instruction):
   def __init__(self, *args, **kwargs):
     super().__init__(*args, **kwargs)
@@ -623,9 +654,9 @@ class C_Instruction(Instruction):
     dest = ''
     comp = ''
 
-    # the default value is XXX b/c we do self.jump in 'JEQ JNE' etc and if we used '' as the
+    # the default value is NO_JUMP b/c we do self.jump in 'JEQ JNE' etc and if we used '' as the
     # default value it will always match
-    jump = 'XXX'
+    jump = NO_JUMP
 
     if '=' in src:
       dest, tail = src.split('=', 1)
@@ -651,7 +682,7 @@ class C_Instruction(Instruction):
 
     expr += self.comp
 
-    if self.jump != 'XXX':
+    if self.jump != NO_JUMP:
       expr += ';' + self.jump
 
     self.expression = expr
@@ -1013,7 +1044,7 @@ def test_const_instruction():
     @FOO
   '''
   assembler = Assembler(pretty_print=True, compat=False).assemble(src)
-  assert len(assembler.instructions) == 2
+  assert len(assembler.instructions) == 1
   assert assembler.known_symbols['FOO'] == 0xFF
   assert assembler.instructions[-1].resolve(assembler.known_symbols) == '0000000011111111'
 
