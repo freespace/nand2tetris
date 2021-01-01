@@ -3,8 +3,6 @@
 import sys
 import click
 
-import time
-
 OPT_LOADS = 'loads'
 OPT_CONSEC_NOPS = 'consec_nops'
 OPT_UNNEEDED_NOPS = 'unneeded_nops'
@@ -110,14 +108,29 @@ class Assembler:
     self._warnings = []
 
     self._instructions = None
+    self._postprocessed_src = None
+
+    self._nounce_counter = 0
 
     if annotate:
       self.hack_output.append(f'// SOURCE FILE={input_asm}')
 
   @property
+  def _nounce(self):
+    self._nounce_counter += 1
+    return hex(self._nounce_counter)
+
+  @property
   def instructions(self):
     if self._instructions is not None:
       return list(self._instructions)
+    else:
+      return None
+
+  @property
+  def postprocessed_src(self):
+    if self._postprocessed_src is not None:
+      return list(self._postprocessed_src)
     else:
       return None
 
@@ -143,15 +156,27 @@ class Assembler:
         fh.write(self.dumps())
 
   def preprocess(self, asm_lines):
+    """
+    :param asm_lines: list of strings, no empty lines allowed
+    :return: list of strings with all macros removed
+    """
     postprocessed_lines = []
+
+    def appendlines(lines):
+      for ll in lines:
+        ll = ll.strip()
+        if len(ll):
+          postprocessed_lines.append(ll)
+
     for l in asm_lines:
-      append = True
-
-      if l.startswith('$const '):
+      if l.startswith('$const'):
         self._parse_const_macro(l)
-        append = False
+      elif l.startswith('$call'):
+        appendlines(self._parse_call_macro(l))
+      elif l.startswith('$return'):
+          appendlines(self._parse_return_macro(l))
 
-      if append:
+      if l[0] != '$':
         postprocessed_lines.append(l)
 
     return postprocessed_lines
@@ -210,7 +235,7 @@ class Assembler:
     pc = 0
     for inst in instructions:
       # gather warnings
-      self._warnings += inst.warnings
+      self._warnings += inst.warnings()
 
       machine_code = inst.resolve(self.known_symbols, compat=self._compat)
 
@@ -257,6 +282,9 @@ class Assembler:
     # make the instructions available for inspection
     self._instructions = instructions
 
+    # make the post processed lines available for inspection
+    self._postprocessed_src = asm_lines
+
     # allow chaining, e.g. self.assemble().dumps()
     return self
 
@@ -265,40 +293,6 @@ class Assembler:
 
   def _parse_label(self, l, source_block):
     return [Label_Instruction(l, source_block=source_block)]
-
-  def _parse_call(self, l, source_block):
-    parts = [p for p in l.split(' ') if len(p)]
-    jump_dest = parts[1]
-
-    return_addr_label = f'RETURN_FROM_{jump_dest}.{int(time.time())}'
-    src = f'''
-      // push the return address onto the stack
-
-      // load return address into D
-      @{return_addr_label}
-      D=A
-
-      // get pointer to top of stack
-      @SP
-      A=M
-
-      // write to top of stack
-      M=D
-
-      // increment SP
-      @SP
-      M=M+1
-
-      // jump to destination
-      @{jump_dest}
-      0; JEQ
-
-      // on $return continue from here
-      ({return_addr_label})
-    '''
-
-    return Assembler(compat=self._compat).assemble(src).instructions
-
 
   def _parse_C_inst(self, l, source_block):
     inst = C_Instruction(l, source_block=source_block)
@@ -317,6 +311,54 @@ class Assembler:
         ret.append(NOP_Instruction())
 
     return ret
+
+  def _parse_return_macro(self, line):
+    src = '''
+    // pop the return address into D
+    @SP
+    A=M
+    D=M
+
+    @SP
+    M=M-1
+
+    // load the return address
+    A=D
+    0;JEQ
+    '''
+    return src.splitlines()
+
+  def _parse_call_macro(self, line):
+    parts = [p for p in line.split(' ') if len(p)]
+    if len(parts) != 2:
+      raise Exception(f'Invalid $call macro: {line}')
+
+    _, jump_dest = parts
+
+    return_addr_label = f'RETURN_FROM:{jump_dest}.{self._nounce}'
+
+    src = f'''
+    // push return addr onto the stack
+    @{return_addr_label}
+    D=A
+
+    @SP
+    A=M
+    M=D
+
+    // inc SP
+    @SP
+    M=M+1
+
+    // jump to destination
+    @{jump_dest}
+    0;JEQ
+
+    // come back here
+    ({return_addr_label})
+    '''
+
+    return src.splitlines()
 
   def _parse_const_macro(self, line):
     parts = [p for p in line.split(' ') if len(p)]
@@ -516,7 +558,6 @@ class Instruction:
 
     self._warnings = []
 
-  @property
   def warnings(self):
     return list(self._warnings)
 
@@ -1038,7 +1079,7 @@ def test_regenerate_expression():
   inst.regenerate_expression()
   assert inst.expression == 'A,D=M+1;JEQ'
 
-def test_const_instruction():
+def test_const_macro():
   src = '''
     $const FOO 0xFF
     @FOO
@@ -1047,4 +1088,58 @@ def test_const_instruction():
   assert len(assembler.instructions) == 1
   assert assembler.known_symbols['FOO'] == 0xFF
   assert assembler.instructions[-1].resolve(assembler.known_symbols) == '0000000011111111'
+
+def test_nounce():
+  assembler = Assembler()
+  assert assembler._nounce != assembler._nounce
+
+def test_preprocessing():
+  src = '''
+    $const abc 123
+    (LABEL)
+    @0
+    D=D+1
+  '''
+  assembler = Assembler(pretty_print=True, compat=False).assemble(src)
+  srclines = [l.strip() for l in src.splitlines() if len(l.strip())][1:]
+
+  assert srclines == assembler.postprocessed_src
+
+def test_call_macro():
+  src = '''
+    (FUNC_FOO)
+      D=D+1
+
+    $call FUNC_FOO
+  '''
+  assembler = Assembler(pretty_print=True, compat=False).assemble(src)
+  assert type(assembler.instructions[-1]) == Label_Instruction
+  for l in assembler.postprocessed_src:
+    print(l)
+
+def test_return_macro():
+  src = '''
+    (FUNC_FOO)
+      D=D+1
+      $return
+  '''
+  assembler = Assembler(pretty_print=True, compat=False).assemble(src)
+  lastinst = assembler.instructions[-1]
+  assert type(lastinst) == C_Instruction
+  assert lastinst.comp == '0'
+  assert lastinst.jump == 'JEQ'
+  for l in assembler.postprocessed_src:
+    print(l)
+
+def test_call_return_macros():
+  src = '''
+    (FUNC_FOO)
+      D=D+1
+      $return
+
+    $call FUNC_FOO
+  '''
+  assembler = Assembler(pretty_print=True, compat=False).assemble(src)
+  for l in assembler.postprocessed_src:
+    print(l)
 
