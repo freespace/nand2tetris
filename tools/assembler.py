@@ -162,8 +162,8 @@ class Assembler:
     """
     postprocessed_lines = []
 
-    def appendlines(lines):
-      for ll in lines:
+    def appendsrc(src):
+      for ll in src.splitlines():
         ll = ll.strip()
         if len(ll):
           postprocessed_lines.append(ll)
@@ -172,9 +172,13 @@ class Assembler:
       if l.startswith('$const'):
         self._parse_const_macro(l)
       elif l.startswith('$call'):
-        appendlines(self._parse_call_macro(l))
+        appendsrc(self._parse_call_macro(l))
       elif l.startswith('$return'):
-          appendlines(self._parse_return_macro(l))
+        appendsrc(self._parse_return_macro(l))
+      elif l.startswith('$gosub'):
+        appendsrc(self._parse_gosub_macro(l))
+      elif l.startswith('$goback'):
+        appendsrc(self._parse_goback_macro(l))
 
       if l[0] != '$':
         postprocessed_lines.append(l)
@@ -313,20 +317,21 @@ class Assembler:
     return ret
 
   def _parse_return_macro(self, line):
-    src = '''
-    // pop the return address into D
-    @SP
-    A=M
-    D=M
+    return f'''
+      // MACRO_START: {line}
+      // pop the return address into D
+      @SP
+      A=M
+      D=M
 
-    @SP
-    M=M-1
+      @SP
+      M=M-1
 
-    // load the return address
-    A=D
-    0;JEQ
-    '''
-    return src.splitlines()
+      // load the return address
+      A=D
+      0;JEQ
+      // MACRO_END
+      '''
 
   def _parse_call_macro(self, line):
     parts = [p for p in line.split(' ') if len(p)]
@@ -337,29 +342,65 @@ class Assembler:
 
     return_addr_label = f'RETURN_FROM:{jump_dest}.{self._nounce}'
 
-    src = f'''
-    // push return addr onto the stack
-    @{return_addr_label}
-    D=A
+    return f'''
+      // MACRO_START: {line}
+      // push return addr onto the stack
+      @{return_addr_label}
+      D=A
 
-    @SP
-    A=M
-    M=D
+      @SP
+      A=M
+      M=D
 
-    // inc SP
-    @SP
-    M=M+1
+      // inc SP
+      @SP
+      M=M+1
 
-    // jump to destination
-    @{jump_dest}
-    0;JEQ
+      // jump to destination
+      @{jump_dest}
+      0;JEQ
 
-    // come back here
-    ({return_addr_label})
-    '''
+      // come back here
+      ({return_addr_label})
+      // MACRO_END
+      '''
 
-    return src.splitlines()
+  def _parse_gosub_macro(self, line):
+    parts = [p for p in line.split(' ') if len(p)]
+    if len(parts) != 2:
+      raise Exception(f'Invalid $gosub macro: {line}')
 
+    _, jump_dest = parts
+
+    return_addr_label = f'GOBACK_FROM:{jump_dest}.{self._nounce}'
+
+    return f'''
+      // MACRO_START: {line}
+      // save return addr into @RETURN_ADDR
+      @{return_addr_label}
+      D=A
+
+      @__RET_ADDR__
+      M=D
+
+      // jump to destination
+      @{jump_dest}
+      0;JEQ
+
+      // come back here
+      ({return_addr_label})
+      // MACRO_END
+      '''
+
+  def _parse_goback_macro(self, line):
+    return f'''
+      // MACRO_START: {line}
+      // load return address into A
+      @__RET_ADDR__
+      A=M
+      0;JEQ
+      // MACRO_END
+      '''
   def _parse_const_macro(self, line):
     parts = [p for p in line.split(' ') if len(p)]
     if len(parts) != 3:
@@ -1160,3 +1201,46 @@ def test_call_return_macros():
   for l in assembler.postprocessed_src:
     print(l)
 
+def test_gosub_macro():
+  src = '''
+    (FUNC_FOO)
+      D=D+1
+
+    $gosub FUNC_FOO
+  '''
+  assembler = Assembler(pretty_print=True, compat=False).assemble(src)
+  assert type(assembler.instructions[-1]) == Label_Instruction
+
+def test_goback_macro():
+  src = '''
+    (FUNC_FOO)
+      D=D+1
+      $goback
+  '''
+  assembler = Assembler(pretty_print=True, compat=False).assemble(src)
+  lastinst = assembler.instructions[-1]
+  assert type(lastinst) == C_Instruction
+  assert lastinst.comp == '0'
+  assert lastinst.jump == 'JEQ'
+
+  ret_addr_found = False
+  for l in assembler.postprocessed_src:
+    if l == '@__RET_ADDR__':
+      ret_addr_found = True
+
+  assert ret_addr_found
+
+
+def test_gosub_goback_macros():
+  src = '''
+    (SUB_FOO)
+      D=D+1
+      $goback
+
+    $gosub SUB_FOO
+  '''
+  assembler = Assembler(pretty_print=True, compat=False).assemble(src)
+  assert type(assembler.instructions[-1]) == Label_Instruction
+
+  for l in assembler.postprocessed_src:
+    print(l)
