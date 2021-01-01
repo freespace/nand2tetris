@@ -1114,8 +1114,25 @@ def test_call_macro():
   '''
   assembler = Assembler(pretty_print=True, compat=False).assemble(src)
   assert type(assembler.instructions[-1]) == Label_Instruction
+
+  src = '''
+    (FUNC_FOO)
+      D=D+1
+
+    $call FUNC_FOO
+    $call FUNC_FOO
+  '''
+  assembler = Assembler(pretty_print=True, compat=False).assemble(src)
+
+  # make sure 2 different return address labels were generated
+  return_addr_labels = set()
   for l in assembler.postprocessed_src:
-    print(l)
+    if '(RETURN_FROM:FUNC_FOO' in l:
+      return_addr_labels.add(l)
+
+  print(return_addr_labels)
+  assert len(return_addr_labels) == 2
+
 
 def test_return_macro():
   src = '''
