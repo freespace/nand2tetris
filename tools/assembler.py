@@ -170,7 +170,10 @@ class Assembler:
         # we do not reset source_line here b/c we want to keep
         # labels in the source block
         instructions += self._parse_label(exp, source_block)
+      elif exp.startswith('$const '):
+        instructions += self._parse_const(exp, source_block)
       else:
+        # these instruction reset source_block so are in their own branch
         if exp[0] == '@':
           instructions += self._parse_A_inst(exp, source_block)
         else:
@@ -245,6 +248,9 @@ class Assembler:
   def _parse_label(self, l, source_block):
     return [Label_Instruction(l, source_block=source_block)]
 
+  def _parse_const(self, l, source_block):
+    return [Const_Instruction(l, source_block=source_block)]
+
   def _parse_C_inst(self, l, source_block):
     inst = C_Instruction(l, source_block=source_block)
 
@@ -269,20 +275,26 @@ class Assembler:
     # redefinition
     seen_labels = set()
     pc = 0
-    for inst in (inst for inst in instructions if inst.emit):
+    for inst in instructions:
       if type(inst) == Label_Instruction:
         symbol = inst.symbols()[0]
         if symbol in seen_labels:
           raise NameError(f'Redefinition of label {symbol}')
         self.known_symbols[symbol] = pc
         seen_labels.add(symbol)
-      else:
+      elif inst.emit:
         pc += 1
+
+    # find all constants and remember their values
+    for inst in instructions:
+      if type(inst) == Const_Instruction:
+        name, value = inst.symbols()
+        self.known_symbols[name] = value
 
     # find all variables and assign RAM location if not
     # already known
     for inst in instructions:
-      if type(inst) == A_Instruction:
+      if inst.emit and type(inst) == A_Instruction:
         for s in inst.symbols():
           if not s in self.known_symbols:
             self.known_symbols[s] = self._next_variable_address
@@ -441,7 +453,13 @@ class Instruction:
                          and this one, inclusive of the instruction itself.
                          This includes comments and jump labels.
     """
-    self.expression = expression.replace(' ','')
+
+    # special commands are prefixed with $ where space matters
+    if expression[0] != '$':
+      self.expression = expression.replace(' ','')
+    else:
+      self.expression = expression
+
     self.generated = generated
     self.source_block = source_block
     self.emit = True
@@ -547,6 +565,10 @@ class Instruction:
     return f'[{type(self).__name__}] {self.expression}'
 
 class Label_Instruction(Instruction):
+  def __init__(self, *args, **kwargs):
+    super().__init__(*args, **kwargs)
+    self.emit = False
+
   def symbols(self):
     return [self.expression[1:-1]]
 
@@ -571,6 +593,25 @@ class A_Instruction(Instruction):
       val = known_symbols[label]
 
     return f'0{val:015b}'
+
+class Const_Instruction(Instruction):
+  def __init__(self, *args, **kwargs):
+    super().__init__(*args, **kwargs)
+    self.emit = False
+
+  def symbols(self):
+    parts = [p for p in self.expression.split(' ') if len(p)]
+    if len(parts) != 3:
+      raise Exception(f'Invalid $const expression: {self.expression}')
+
+    _, name, value = parts
+
+    value = self.parse_numeric_constant(value)
+
+    return (name, value)
+
+  def resolve(self, *args, **kwargs):
+    return None
 
 class C_Instruction(Instruction):
   def __init__(self, *args, **kwargs):
@@ -965,3 +1006,14 @@ def test_regenerate_expression():
   inst.dest = 'A,D'
   inst.regenerate_expression()
   assert inst.expression == 'A,D=M+1;JEQ'
+
+def test_const_instruction():
+  src = '''
+    $const FOO 0xFF
+    @FOO
+  '''
+  assembler = Assembler(pretty_print=True, compat=False).assemble(src)
+  assert len(assembler.instructions) == 2
+  assert assembler.known_symbols['FOO'] == 0xFF
+  assert assembler.instructions[-1].resolve(assembler.known_symbols) == '0000000011111111'
+
