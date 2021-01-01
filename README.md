@@ -110,9 +110,38 @@ These macros are intended to help with direct assembly programming
 
 1. `$const <name> <value>`: inserts the symbol `<name>` into the symbole table with the specified
     integer `<value>`
-2. `$call <label>`: pushes the return address at the top of the stack then performs a jump to the
+1. `$call <label>`: pushes the return address at the top of the stack then performs a jump to the
    specified  label
-3. `$return`: pop the return address at the top of the stack and jumps to it
+1. `$return`: pop the return address at the top of the stack and jumps to it
+
+The `$call/$return` macros allows for nested function calls, e.g.
+
+```
+(SUB_INC_D)
+  D=D+1
+  $return
+
+(SUB_INC_M_AND_D)
+  M=M+1
+  $call SUB_INC_D
+
+(SUB_MAIN)
+  @SCREEN
+  $call SUB_INC_M_AND_D
+```
+
+However the overhead of pushing and popping return address is very high. The `$call` macro expands
+to 9 instructions while the `$return` macro is 7 instructions. If we don't care about nested calls
+then we can use the simplified `$gosub` and `$goback` macros which always stores the return address
+in the variable `__RET_ADDR__`. This only allows one level of function calls but is cheaper. e.g.
+`$gosub` uses 6 instructions while `$goback` uses 3 instructions.
+
+Note that a function/sub that uses `$return` cannot be used with `$gosub` and vice-versa.
+
+To make the distinction clear in the code the convention is as follows:
+
+1. Functions use `$call/$return` and have prefix `func_`
+1. Subroutines use `$gosub/goback` and have prefix `sub_`
 
 ### Valid Symbol Characters
 The course calls for $ to be a valid character, however I accidentally used it for the macro
