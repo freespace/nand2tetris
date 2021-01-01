@@ -93,13 +93,26 @@ Assembler
 Macros are implemented in two places:
 
 1. `asm.py` used by `vm2asm.py`
-2. `assembler.py`
+1. `assembler.py`
 
-Macros in `asm.py` are self contained and emits assembly instruction to perform set tasks, e.g.
-`$inc_sp` to increment the stack pointer by 1.
+#### `asm.py` Macros
 
-Macros in `assembler.py` have wider ranging effects, e.g. `$const` defines a new constant in the
-symbol table.
+These macros are intended to help with implementing the stack virtual machine.
+
+1. `$inc_sp`, `$dec_sp`: increments and decrements stack pointer (SP)
+1. `$load_sp`, `$save_sp`: loads SP into A and saves A into SP
+1. `$_`: replaced with a unique identifier, e.g. `$_LABEL` can be used multiple times and each time
+    will result in unique label, e.g. `001_LABEL`, `002_LABEL`.
+
+#### `assembler.py` Macros
+
+These macros are intended to help with direct assembly programming
+
+1. `$const <name> <value>`: inserts the symbol `<name>` into the symbole table with the specified
+    integer `<value>`
+2. `$call <label>`: pushes the return address at the top of the stack then performs a jump to the
+   specified  label
+3. `$return`: pop the return address at the top of the stack and jumps to it
 
 ### Valid Symbol Characters
 The course calls for $ to be a valid character, however I accidentally used it for the macro
