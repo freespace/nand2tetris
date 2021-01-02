@@ -44,6 +44,8 @@ module Top(
     end else begin
       vid_clkdiv <= vid_clkdiv + 1;
     end
+
+    inst <= ROM[pc];
   end
 
   assign hack_clk = hack_clkdiv < CLK_FREQ_HZ/(2*CPU_FREQ_HZ);
@@ -51,15 +53,13 @@ module Top(
 
   reg[7:0] reset = 8'hFF;
   wire[14:0] pc;
-  wire[15:0] inst;
+  reg[15:0] inst;
 
   reg[15:0] ROM[0:`ROM_SIZE-1];
   // load the program to be executed
   initial begin
     $readmemb(PROG, ROM);
   end
-
-  assign inst = ROM[pc];
 
   assign `S_CLK = vid_clk;
   assign LED1 = hack_clk;
