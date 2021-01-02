@@ -2,6 +2,7 @@
 
 import sys
 import click
+from collections import Counter
 
 OPT_LOADS = 'loads'
 OPT_CONSEC_NOPS = 'consec_nops'
@@ -102,6 +103,7 @@ class Assembler:
     self._next_variable_address = Assembler.VARIABLES_START_ADDRESS
     self._print_count = print_count
 
+    self._symbol_usage = Counter()
     self.known_symbols = dict(Assembler.PREDEFINED_LABELS)
     self.hack_output = []
 
@@ -272,6 +274,7 @@ class Assembler:
       if machine_code:
         self.hack_output.append(machine_code)
 
+    # do some basic checks
     if len(instructions) == 0:
       self.warn('No instructions found in input')
     else:
@@ -279,6 +282,15 @@ class Assembler:
 
       if type(last_inst) != C_Instruction or last_inst.jump == NO_JUMP:
         self.warn('Last instruction should be a jump instruction')
+
+    for symbol in self.known_symbols.keys():
+      # ignore labels in PREDEFINED_LABELS since this code is mostly
+      # intended to detect unused user-defined labels
+      if symbol in self.PREDEFINED_LABELS:
+        continue
+
+      if symbol not in self._symbol_usage:
+        self.warn(f'{symbol} is defined but never used')
 
     if self._print_count:
       sys.stderr.write(f'Assembled {pc} instructions\n')
@@ -414,17 +426,19 @@ class Assembler:
 
   def _resolve_symbols(self, instructions):
     # find all labels and update
-    # keep track of labels we have seen this pass to avoid
-    # redefinition
-    seen_labels = set()
     pc = 0
+
+    # tracks symbols seen _this_ pass. We can't use self.known_symbols b/c  this can be called more
+    # than once and thus self.known_symbols is not a reliable way of detecting re-defintions
+    seen_symbols = set()
+
     for inst in instructions:
       if type(inst) == Label_Instruction:
         symbol = inst.symbols()[0]
-        if symbol in seen_labels:
+        if symbol in seen_symbols:
           raise NameError(f'Redefinition of label {symbol}')
         self.known_symbols[symbol] = pc
-        seen_labels.add(symbol)
+        seen_symbols.add(symbol)
       elif inst.emit:
         pc += 1
 
@@ -436,6 +450,8 @@ class Assembler:
           if not s in self.known_symbols:
             self.known_symbols[s] = self._next_variable_address
             self._next_variable_address += 1
+          else:
+            self._symbol_usage[s] += 1
 
   def _optimise(self, instructions):
     oopt = self._optimise_options
@@ -1244,3 +1260,30 @@ def test_gosub_goback_macros():
 
   for l in assembler.postprocessed_src:
     print(l)
+
+def test_label_redefinition():
+  src = '''
+    (FOO)
+      D=D+1
+    (FOO)
+      M=M-1
+  '''
+  try:
+    Assembler(pretty_print=True, compat=False).assemble(src)
+    assert False
+  except NameError as ex:
+    assert str(ex) == 'Redefinition of label FOO'
+
+def test_unused_label_warning():
+  src = '''
+    (FOO)
+      D=D+1
+  '''
+  assembler = Assembler(pretty_print=True, compat=False).assemble(src)
+
+  warning_found = False
+  for w in assembler.warnings:
+    if 'FOO' in w:
+      warning_found = True
+
+  assert warning_found
