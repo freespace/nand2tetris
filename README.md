@@ -245,7 +245,32 @@ apio
 This project uses apio: https://github.com/FPGAwars/apio . I have a custom fork
 which enables nicer testbenches: https://github.com/freespace/apio
 
-gtkwave setup
+### Useful Commands
+
+1. `apio clean`: removes build artefacts
+1. `apio sim -t Top_tb.v`: run simulation using `Top_tb.v`
+1. `apio build`: builds and generates the necessary binary files for uploading
+
+Generally I also use `apio clean` with `sim` or `build`, e.g.
+
+```
+apio clean; apio sim -t Top_tb.v
+```
+
+This ensures a clean build which is helpful in avoiding staleness or strange behaviours when
+switching between git branches etc.
+
+Firmware Generation
+--------------------
+
+To generate `firmware.hack` for use with `Top_tb.v` from one of the test `.asm` programs run
+something like the following in the same directory as `Top_tb.v`:
+
+```
+python ../../../tools/assembler.py -A -O all < memory_access_test.asm > firmware.hack
+```
+
+gtkwave Setup
 -------------
 
 1. Install using brew cask install gtkwave
