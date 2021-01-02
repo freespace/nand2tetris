@@ -6,12 +6,6 @@
 
 `define ROM_SIZE 1024*4
 
-/**
-  CLK_FREQ_HZ must be 2x faster than VIDEO_FREQ_HZ.
-  VIDEO_FREQ_HZ must be at least 400x faster than
-  CPU_FREQ_HZ.
-*/
-
 module Top(
   input wire CLK,
   // shift out clock
@@ -25,37 +19,35 @@ module Top(
   output wire LEDG_N);
 
   parameter CLK_FREQ_HZ=12000000;
-  parameter CPU_FREQ_HZ=200;
-  // video should be at least 256x faster than CPU
-  parameter VIDEO_FREQ_HZ=40000;
+  parameter CPU_FREQ_HZ=100000;
+  parameter VIDEO_FREQ_HZ=100000;
 
   parameter PROG="firmware.hack";
 
   reg[24:0] hack_clkdiv = 0;
-  reg hack_clk = 0;
+  wire hack_clk;
 
   reg[24:0] vid_clkdiv = 0;
-  reg vid_clk = 0;
+  wire vid_clk;
 
 
   // generate ALU and shift clocks based on CLK input
   always @(posedge CLK) begin
-    // best HACK's CPU runs at half the CPU_FREQ we scale
-    // things accordingly here
-    if (hack_clkdiv == CLK_FREQ_HZ/(2*CPU_FREQ_HZ)) begin
+    if (hack_clkdiv == CLK_FREQ_HZ/CPU_FREQ_HZ) begin
       hack_clkdiv <= 0;
-      hack_clk <= ~hack_clk;
     end else begin
       hack_clkdiv <= hack_clkdiv + 1;
     end
 
-    if (vid_clkdiv == CLK_FREQ_HZ/(2*VIDEO_FREQ_HZ)) begin
+    if (vid_clkdiv == CLK_FREQ_HZ/VIDEO_FREQ_HZ) begin
       vid_clkdiv <= 0;
-      vid_clk <= ~vid_clk;
     end else begin
       vid_clkdiv <= vid_clkdiv + 1;
     end
   end
+
+  assign hack_clk = hack_clkdiv < CLK_FREQ_HZ/(2*CPU_FREQ_HZ);
+  assign vid_clk = vid_clkdiv < CLK_FREQ_HZ/(2*VIDEO_FREQ_HZ);
 
   reg[7:0] reset = 8'hFF;
   wire[14:0] pc;
