@@ -1,5 +1,3 @@
-(INIT)
-  // ...
 (WRITE_1)
   @R0
   M=0
@@ -47,12 +45,9 @@
   // check loop condition
   @7
   D=D-A
-  @WRITE_1_LOOP
+  @WRITE_0_LOOP
   D;JLT
 
   // otherwise jump to WRITE_0 to start clearing the screen
-  @WRITE_0
+  @WRITE_1
   0;JEQ
-
-(END)
-  // ...
