@@ -1,0 +1,12 @@
+(MAIN)
+@0
+M=0
+M=M+1
+D=M
+D=D-1
+@MAIN
+D;JEQ
+(DEAD)
+@DEAD
+0;JEQ
+
