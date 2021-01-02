@@ -51,17 +51,15 @@ module Top(
 
   reg[7:0] reset = 8'hFF;
   wire[14:0] pc;
-  reg[15:0] inst;
+  wire[15:0] inst;
 
   reg[15:0] ROM[0:`ROM_SIZE-1];
   // load the program to be executed
   initial begin
     $readmemb(PROG, ROM);
   end
-  // hopefully set it up as synchronous memory
-  always @(posedge hack_clk) begin
-    inst = ROM[pc];
-  end
+
+  assign inst = ROM[pc];
 
   assign `S_CLK = vid_clk;
   assign LED1 = hack_clk;
@@ -69,7 +67,7 @@ module Top(
   assign LEDG_N = pc[1];
 
   always @(posedge hack_clk) begin
-    // generate a reset signal for 4 clocks. Once all the 1s
+    // generate a reset signal for 8 clocks. Once all the 1s
     // have been shifted out reset will be 0 and the PC will be
     // allowed to increment
     reset <= reset >> 1;
