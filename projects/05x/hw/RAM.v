@@ -59,7 +59,7 @@ module RAM(
     .a(data_ram_out),
     .b(video_ram_out),
     .c(video_cnt_out),
-    .d(0),
+    .d(16'b0),
     .sel(out_sel));
 
   // when the MSB is not set data_ram is directly connected
