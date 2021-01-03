@@ -777,20 +777,26 @@ class Instruction:
     is emitted.
     """
     try:
-      ret = None
-      if token.isdigit():
-        ret = int(token)
+      if '_' in token:
+        token = token.replace('_', '')
 
-      token = token.replace('_', '')
+      sign = 1
+      if token[0] == '+':
+        token = token[1:]
+      if token[0] == '-':
+        token = token[1:]
+        sign = -1
 
       if token[:2] == '0x':
         ret = int(token, 16)
-
-      if token[:2] == '0b':
+      elif token[:2] == '0b':
         ret = int(token, 2)
+      else:
+        ret = int(token)
 
       # our ISR can only accept 15 bit constants
       if ret:
+        ret *= sign
         if ret > 2**15-1:
           self.warn(f'WARNING: literal value {token} truncated to 15 bits')
 
@@ -840,6 +846,9 @@ class Label_Instruction(Instruction):
     super().__init__(*args, **kwargs)
     self.emit = False
 
+    if len(self.expression) < 3:
+      raise SyntaxError(f'Invalid Label instruction: {self.expression}')
+
   def symbols(self):
     return [self.expression[1:-1]]
 
@@ -847,16 +856,28 @@ class Label_Instruction(Instruction):
     return None
 
 class A_Instruction(Instruction):
+  def __init__(self, *args, **kwargs):
+    super().__init__(*args, **kwargs)
+    if len(self.expression) < 2:
+      raise SyntaxError(f'Invalid A instruction: {self.expression}')
+
   def symbols(self):
     v = self.expression[1:]
-    if v.isdigit():
+
+    # we have a valid numeric constant so this isn't a symbol
+    try:
+      self.parse_numeric_constant(v)
       return []
-    else:
+    except SyntaxError:
       return [v]
 
   def resolve(self, known_symbols, compat=False):
     src = self.expression
-    val = self.parse_numeric_constant(src[1:])
+    try:
+      val = self.parse_numeric_constant(src[1:])
+    except SyntaxError:
+      val = None
+
     if val is None:
       label = src[1:]
       if not label in known_symbols:
@@ -1526,3 +1547,46 @@ def test_symbol_validation():
     assert False
   except NameError as ex:
     assert 'Invalid character' in str(ex)
+
+def test_label_instruction():
+  src = '''
+    ()
+    D=D+1
+  '''
+  try:
+    Assembler(pretty_print=True, compat=False).assemble(src)
+    assert False
+  except SyntaxError as ex:
+    assert 'Invalid Label instruction' in str(ex)
+
+def test_A_instruction():
+  src = '''
+    @
+    D=A
+  '''
+  try:
+    Assembler(pretty_print=True, compat=False).assemble(src)
+    assert False
+  except SyntaxError as ex:
+    assert 'Invalid A instruction' in str(ex)
+
+def test_parse_numeric_constant():
+  inst = A_Instruction('@1')
+  assert inst.parse_numeric_constant('-123') == -123&0x7FFF
+  assert inst.parse_numeric_constant('123') == 123
+  assert inst.parse_numeric_constant('0xFF') == 255
+  assert inst.parse_numeric_constant('-0x123') == (-0x123)&0x7FFF
+  assert inst.parse_numeric_constant('0b0000_0011') == 3
+  assert inst.parse_numeric_constant('0b111_1111_1111_1111') == -1&0x7FFF
+  inst.parse_numeric_constant('0xFF') == 255
+
+def test_A_Instruction_symbols():
+  inst = A_Instruction('@-1')
+  assert inst.symbols() == []
+
+  inst = A_Instruction('@-255')
+  assert inst.symbols() == []
+
+  inst = A_Instruction('@HELLO')
+  assert inst.symbols() == ['HELLO']
+
