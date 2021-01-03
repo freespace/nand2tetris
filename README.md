@@ -116,7 +116,8 @@ These macros are intended to help with direct assembly programming
 1. `$this`: replaced with the most recent `func_` label, e.g. `func_FOO`
 1. `$copy_mm <dst> <src>`: copies content of memory at `src` into `dest`
 1. `$copy_mv <dst> <value>`: copies `value` into memory address `dest`
-1. `$if_M_goto <mem> <dest>`: jumps to `dest` if `*mem` contains non-zero value
+1. `$if_var_goto <var> <dest>`: jumps to `dest` if `*var` contains non-zero value
+1. `$if_M_goto <dest>`: jumps to `dest` if M contains non-zero value
 1. `$if_A_goto <dest>`: jumps to `dest` if A contains non-zero value
 1. `$if_D_goto <dest>`: jumps to `dest` if D contains non-zero value
 
