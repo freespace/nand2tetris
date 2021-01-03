@@ -179,23 +179,31 @@ class Assembler:
         'goback': self._parse_goback_macro,
         'copy_mm': self._parse_copy_mm_macro,
         'copy_mv': self._parse_copy_mv_macro,
-        'if_M_goto': self._parse_if_M_goto_macro,
+        'if_var_goto': self._parse_if_var_goto_macro,
         'if_A_goto': self._parse_if_A_goto_macro,
         'if_D_goto': self._parse_if_D_goto_macro,
+        'if_M_goto': self._parse_if_M_goto_macro,
     }
 
     block_name = None
     for l in asm_lines:
-      if l.startswith('$'):
-        for name, func in macro_lut.items():
-          if l[1:].startswith(name):
-            appendsrc(func(l))
-
+      # this must go first b/c we can have $if_D_goto $this.DONE
       if '$this' in l:
         if block_name:
           l = l.replace('$this', block_name)
         else:
           raise Exception('$this used but not in a func_ or sub_ block')
+
+      if l.startswith('$'):
+        found = False
+        for name, func in macro_lut.items():
+          if l[1:].startswith(name):
+            appendsrc(func(l))
+            found = True
+            break
+
+        if not found:
+          raise Exception(f'Unknown macro found: {l}')
 
       if l.startswith('(func_') or l.startswith('(sub_'):
         block_name = l[1:-1]
@@ -475,10 +483,10 @@ class Assembler:
 
     return ''
 
-  def _parse_if_M_goto_macro(self, line):
+  def _parse_if_var_goto_macro(self, line):
     parts = [p for p in line.split(' ') if len(p)]
     if len(parts) != 3:
-      raise Exception(f'Invalid $if_M_goto macro: {line}')
+      raise Exception(f'Invalid $if_var_goto macro: {line}')
 
     _, mem, dest = parts
 
@@ -516,6 +524,19 @@ class Assembler:
       D;JNE
     '''
 
+  def _parse_if_M_goto_macro(self, line):
+    parts = [p for p in line.split(' ') if len(p)]
+    if len(parts) != 2:
+      raise Exception(f'Invalid $if_M_goto macro: {line}')
+
+    _, dest = parts
+
+    return f'''
+      D=M
+      @{dest}
+      D;JNE
+    '''
+
   def _resolve_symbols(self, instructions):
     # find all labels and update
     pc = 0
@@ -524,13 +545,23 @@ class Assembler:
     # than once and thus self.known_symbols is not a reliable way of detecting re-defintions
     seen_symbols = set()
 
+    def add_symbol(s, v):
+      for c in s:
+        if c in '.:_':
+          continue
+        if c.isalnum():
+          continue
+        raise NameError(f'Invalid character {c} in symbol {s}')
+
+      self.known_symbols[s] = v
+      seen_symbols.add(s)
+
     for inst in instructions:
       if type(inst) == Label_Instruction:
         symbol = inst.symbols()[0]
         if symbol in seen_symbols:
           raise NameError(f'Redefinition of label {symbol}')
-        self.known_symbols[symbol] = pc
-        seen_symbols.add(symbol)
+        add_symbol(symbol, pc)
       elif inst.emit:
         pc += 1
 
@@ -540,7 +571,7 @@ class Assembler:
       if inst.emit and type(inst) == A_Instruction:
         for s in inst.symbols():
           if not s in self.known_symbols:
-            self.known_symbols[s] = self._next_variable_address
+            add_symbol(s, pc)
             self._next_variable_address += 1
           else:
             self._symbol_usage[s] += 1
@@ -699,7 +730,7 @@ class Instruction:
                          This includes comments and jump labels.
     """
 
-    self.expression = expression.replace(' ','')
+    self.expression = expression
 
     self.generated = generated
     self.source_block = source_block
@@ -837,6 +868,8 @@ class A_Instruction(Instruction):
 class C_Instruction(Instruction):
   def __init__(self, *args, **kwargs):
     super().__init__(*args, **kwargs)
+    self.expression = self.expression.replace(' ', '')
+
     src = self.expression
     # C-inst has the form dest=comp;jump where dest, comp and jump are all
     # optional
@@ -961,7 +994,7 @@ class C_Instruction(Instruction):
         else:
           raise
       except KeyError:
-        raise Exception(f'Unsupported computation {comp}')
+        raise Exception(f'Unsupported computation {comp}: {self.expression}')
 
     # invert w and d
     w = 1 - w
@@ -1402,6 +1435,7 @@ def test_this_macro():
   '''
   try:
     Assembler(pretty_print=True, compat=False).assemble(src)
+    assert False
   except Exception as ex:
     assert '$this' in  str(ex)
     print(ex)
@@ -1421,9 +1455,24 @@ def test_this_macro():
 
   assert found
 
-def test_if_M_goto_macro():
+  src =  '''
+  (func_FOO)
+    $if_D_goto $this.DONE
+    0;JEQ
+  '''
+  assembler = Assembler(pretty_print=True, compat=False).assemble(src)
+
+  found = False
+  for l in assembler.postprocessed_src:
+    print(l)
+    if '@func_FOO.DONE' in l:
+      found = True
+
+  assert found
+
+def test_if_var_goto_macro():
   src = '''
-    $if_M_goto RET DONE
+    $if_var_goto RET DONE
   '''
   expected = ['@RET', 'D=M', '@DONE', 'D;JNE']
   assembler = Assembler(pretty_print=True, compat=False).assemble(src)
@@ -1447,3 +1496,33 @@ def test_if_D_goto_macro():
   assembler = Assembler(pretty_print=True, compat=False).assemble(src)
   assert assembler.postprocessed_src == expected
   print(assembler.postprocessed_src)
+
+def test_if_M_goto_macro():
+  src = '''
+    $if_M_goto DONE
+  '''
+  expected = ['D=M','@DONE', 'D;JNE']
+  assembler = Assembler(pretty_print=True, compat=False).assemble(src)
+  assert assembler.postprocessed_src == expected
+  print(assembler.postprocessed_src)
+
+def test_symbol_validation():
+  src = '''(THIS.IS_A:GOOD0sYmbol)'''
+  Assembler(pretty_print=True, compat=False).assemble(src)
+
+  src = '''(THIS IS NOT VALID)'''
+  try:
+    Assembler(pretty_print=True, compat=False).assemble(src)
+    assert False
+  except NameError as ex:
+    assert 'Invalid character' in str(ex)
+
+  src = '''@This.Is_Fine'''
+  Assembler(pretty_print=True, compat=False).assemble(src)
+
+  src = '''@@This.Is_Not:Fine'''
+  try:
+    Assembler(pretty_print=True, compat=False).assemble(src)
+    assert False
+  except NameError as ex:
+    assert 'Invalid character' in str(ex)
