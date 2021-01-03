@@ -170,17 +170,35 @@ class Assembler:
         if len(ll):
           postprocessed_lines.append(ll)
 
+    # name of the current block, determined by the last func_ or sub_ label encountered
+    macro_lut = {
+        'const': self._parse_const_macro,
+        'call': self._parse_call_macro,
+        'return': self._parse_return_macro,
+        'gosub': self._parse_gosub_macro,
+        'goback': self._parse_goback_macro,
+        'copy_mm': self._parse_copy_mm_macro,
+        'copy_mv': self._parse_copy_mv_macro,
+        'if_M_goto': self._parse_if_M_goto_macro,
+        'if_A_goto': self._parse_if_A_goto_macro,
+        'if_D_goto': self._parse_if_D_goto_macro,
+    }
+
+    block_name = None
     for l in asm_lines:
-      if l.startswith('$const'):
-        self._parse_const_macro(l)
-      elif l.startswith('$call'):
-        appendsrc(self._parse_call_macro(l))
-      elif l.startswith('$return'):
-        appendsrc(self._parse_return_macro(l))
-      elif l.startswith('$gosub'):
-        appendsrc(self._parse_gosub_macro(l))
-      elif l.startswith('$goback'):
-        appendsrc(self._parse_goback_macro(l))
+      if l.startswith('$'):
+        for name, func in macro_lut.items():
+          if l[1:].startswith(name):
+            appendsrc(func(l))
+
+      if '$this' in l:
+        if block_name:
+          l = l.replace('$this', block_name)
+        else:
+          raise Exception('$this used but not in a func_ or sub_ block')
+
+      if l.startswith('(func_') or l.startswith('(sub_'):
+        block_name = l[1:-1]
 
       if l[0] != '$':
         postprocessed_lines.append(l)
@@ -413,16 +431,90 @@ class Assembler:
       0;JEQ
       // MACRO_END
       '''
+
+  def _parse_copy_mm_macro(self, line):
+    parts = [p for p in line.split(' ') if len(p)]
+    if len(parts) != 3:
+      raise Exception(f'Invalid $copy_mm macro: {line}')
+
+    _, dest, src = parts
+
+    return f'''
+      @{src}
+      D=M
+
+      @{dest}
+      M=D
+    '''
+
+  def _parse_copy_mv_macro(self, line):
+    parts = [p for p in line.split(' ') if len(p)]
+    if len(parts) != 3:
+      raise Exception(f'Invalid $copy_mv macro: {line}')
+
+    _, dest, symbol = parts
+
+    return f'''
+      @{symbol}
+      D=A
+
+      @{dest}
+      M=D
+    '''
+
   def _parse_const_macro(self, line):
     parts = [p for p in line.split(' ') if len(p)]
     if len(parts) != 3:
-      raise Exception(f'Invalid $const expression: {self.expression}')
+      raise Exception(f'Invalid $const macro: {line}')
 
     _, name, value = parts
 
     value = Instruction('').parse_numeric_constant(value)
 
     self.known_symbols[name] = value
+
+    return ''
+
+  def _parse_if_M_goto_macro(self, line):
+    parts = [p for p in line.split(' ') if len(p)]
+    if len(parts) != 3:
+      raise Exception(f'Invalid $if_M_goto macro: {line}')
+
+    _, mem, dest = parts
+
+    return f'''
+      @{mem}
+      D=M
+
+      @{dest}
+      D;JNE
+    '''
+
+  def _parse_if_A_goto_macro(self, line):
+    parts = [p for p in line.split(' ') if len(p)]
+    if len(parts) != 2:
+      raise Exception(f'Invalid $if_A_goto macro: {line}')
+
+    _, dest = parts
+
+    return f'''
+      D=A
+
+      @{dest}
+      D;JNE
+    '''
+
+  def _parse_if_D_goto_macro(self, line):
+    parts = [p for p in line.split(' ') if len(p)]
+    if len(parts) != 2:
+      raise Exception(f'Invalid $if_D_goto macro: {line}')
+
+    _, dest = parts
+
+    return f'''
+      @{dest}
+      D;JNE
+    '''
 
   def _resolve_symbols(self, instructions):
     # find all labels and update
@@ -1287,3 +1379,71 @@ def test_unused_label_warning():
       warning_found = True
 
   assert warning_found
+
+def test_copy_mm_macro():
+  src = '''
+    $copy_mm ARG0 SP
+  '''
+  assembler = Assembler(pretty_print=True, compat=False).assemble(src)
+  expected = ['@SP', 'D=M', '@ARG0', 'M=D']
+  assert assembler.postprocessed_src == expected
+
+def test_copy_mv_macro():
+  src = '''
+    $copy_mv ARG0 kNumCols
+  '''
+  assembler = Assembler(pretty_print=True, compat=False).assemble(src)
+  expected = ['@kNumCols', 'D=A', '@ARG0', 'M=D']
+  assert assembler.postprocessed_src == expected
+
+def test_this_macro():
+  src = '''
+    $this.FOO
+  '''
+  try:
+    Assembler(pretty_print=True, compat=False).assemble(src)
+  except Exception as ex:
+    assert '$this' in  str(ex)
+    print(ex)
+
+  src =  '''
+  (func_FOO)
+    @$this.DONE
+    0;JEQ
+  '''
+  assembler = Assembler(pretty_print=True, compat=False).assemble(src)
+
+  found = False
+  for l in assembler.postprocessed_src:
+    print(l)
+    if l == '@func_FOO.DONE':
+      found = True
+
+  assert found
+
+def test_if_M_goto_macro():
+  src = '''
+    $if_M_goto RET DONE
+  '''
+  expected = ['@RET', 'D=M', '@DONE', 'D;JNE']
+  assembler = Assembler(pretty_print=True, compat=False).assemble(src)
+  assert assembler.postprocessed_src == expected
+  print(assembler.postprocessed_src)
+
+def test_if_A_goto_macro():
+  src = '''
+    $if_A_goto DONE
+  '''
+  expected = ['D=A', '@DONE', 'D;JNE']
+  assembler = Assembler(pretty_print=True, compat=False).assemble(src)
+  assert assembler.postprocessed_src == expected
+  print(assembler.postprocessed_src)
+
+def test_if_D_goto_macro():
+  src = '''
+    $if_D_goto DONE
+  '''
+  expected = ['@DONE', 'D;JNE']
+  assembler = Assembler(pretty_print=True, compat=False).assemble(src)
+  assert assembler.postprocessed_src == expected
+  print(assembler.postprocessed_src)
