@@ -571,7 +571,7 @@ class Assembler:
       if inst.emit and type(inst) == A_Instruction:
         for s in inst.symbols():
           if not s in self.known_symbols:
-            add_symbol(s, pc)
+            add_symbol(s, self._next_variable_address)
             self._next_variable_address += 1
           else:
             self._symbol_usage[s] += 1
@@ -1589,4 +1589,15 @@ def test_A_Instruction_symbols():
 
   inst = A_Instruction('@HELLO')
   assert inst.symbols() == ['HELLO']
+
+def test_automatic_variable_address_assignment():
+  src = '''
+    @ARG0
+    M=1
+
+    @ARG1
+    M=0
+  '''
+  a = Assembler(pretty_print=True, compat=False).assemble(src)
+  assert a.known_symbols['ARG0'] != a.known_symbols['ARG1']
 
