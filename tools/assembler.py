@@ -359,11 +359,11 @@ class Assembler:
       // MACRO_START: {line}
       // pop the return address into D
       @SP
-      A=M
-      D=M
+      M=M-1
 
       @SP
-      M=M-1
+      A=M
+      D=M
 
       // load the return address
       A=D
