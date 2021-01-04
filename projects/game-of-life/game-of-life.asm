@@ -3,6 +3,16 @@
   $const kNumCols 24
   $const kNumRows 24
 
+  // System Init
+  // ===========
+
+  @SP
+  M=255
+
+  @.MAIN
+  0;JEQ
+
+(.MAIN)
   // World Init
   // ==========
   // wipe the slate clean
