@@ -35,13 +35,33 @@ NO_JUMP = 'NOJUMP'
                    'lines or PC counts')
 @click.option('-O', '--optimise', type=click.Choice(OPT_CHOICES), default=None,
               help='If given enables the specified optimisation. Defaults to "all".')
-@click.option('--count', 'print_count', is_flag=True,
+@click.option('--print-count', is_flag=True,
               help='If given the number of instructions, minus annotation '
                    'is printed to stderr')
+@click.option('--print-symbols', is_flag=True,
+              help='If given the symbol table will be printed to stderr')
 def main(*args, **kwargs):
+  print_count = kwargs.pop('print_count')
+  print_symbols = kwargs.pop('print_symbols')
+
   assembler = Assembler(*args, **kwargs)
   assembler.assemble()
   assembler.write_hack()
+
+  def p(s):
+    sys.stderr.write(s)
+    sys.stderr.write('\n')
+
+  if print_count:
+    p(f'Assembled {len(assembler.instructions)} instructions')
+
+  if print_symbols:
+    p('')
+    p('SYMBOL TABLE')
+    p('='*(32+10+3))
+    for sym, val in assembler.known_symbols.items():
+      p(f'{sym:32s} = {val:10d}')
+    p('')
 
 def _stderr_warn(warning):
   sys.stderr.write(f'[WARNING] {warning}\n')
@@ -92,8 +112,7 @@ class Assembler:
                compat=False,
                pretty_print=False,
                annotate=False,
-               optimise=None,
-               print_count=False):
+               optimise=None):
     self._input_asm = input_asm
     self._output_hack = output_hack
     self._compat = compat
@@ -101,7 +120,6 @@ class Assembler:
     self._pretty_print = pretty_print
     self._optimise_options = optimise
     self._next_variable_address = Assembler.VARIABLES_START_ADDRESS
-    self._print_count = print_count
 
     self._symbol_usage = Counter()
     self.known_symbols = dict(Assembler.PREDEFINED_LABELS)
@@ -317,9 +335,6 @@ class Assembler:
 
       if symbol not in self._symbol_usage:
         self.warn(f'{symbol} is defined but never used')
-
-    if self._print_count:
-      sys.stderr.write(f'Assembled {pc} instructions\n')
 
     # make the instructions available for inspection
     self._instructions = instructions
