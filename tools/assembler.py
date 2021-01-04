@@ -190,7 +190,7 @@ class Assembler:
       # this must go first b/c we can have $if_D_goto $this.DONE
       if '$this' in l:
         if block_name:
-          l = l.replace('$this', block_name)
+          l = l.replace('$this', f'::{block_name}')
         else:
           raise Exception('$this used but not in a func_ or sub_ block')
 
@@ -1471,7 +1471,7 @@ def test_this_macro():
   found = False
   for l in assembler.postprocessed_src:
     print(l)
-    if l == '@func_FOO.DONE':
+    if l == '@::func_FOO.DONE':
       found = True
 
   assert found
@@ -1486,7 +1486,7 @@ def test_this_macro():
   found = False
   for l in assembler.postprocessed_src:
     print(l)
-    if '@func_FOO.DONE' in l:
+    if '@::func_FOO.DONE' in l:
       found = True
 
   assert found
